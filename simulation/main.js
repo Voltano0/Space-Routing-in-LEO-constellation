@@ -26,7 +26,8 @@ let params = {
     showGroundScope: false,
     animate: true,
     showGrid: true,
-    speedFactor: 1
+    speedFactor: 1,
+    satelliteSize: 0.30
 };
 
 // Initialisation
@@ -262,6 +263,23 @@ function setupControls() {
         const index = parseInt(e.target.value);
         params.speedFactor = SPEED_FACTORS[index];
         speedDisplay.textContent = params.speedFactor;
+    });
+
+    // Slider pour la taille des satellites
+    const satelliteSizeSlider = document.getElementById('satelliteSize');
+    const satelliteSizeDisplay = document.getElementById('satelliteSize-value');
+
+    satelliteSizeSlider.addEventListener('input', (e) => {
+        params.satelliteSize = parseFloat(e.target.value);
+        satelliteSizeDisplay.textContent = params.satelliteSize.toFixed(2);
+
+        // Mettre à jour la taille de tous les satellites existants
+        const satellites = getSatellites();
+        satellites.forEach(sat => {
+            sat.scale.set(1, 1, 1); // Reset au cas où un satellite serait mis en surbrillance
+            sat.geometry.dispose();
+            sat.geometry = new THREE.SphereGeometry(params.satelliteSize, 16, 16);
+        });
     });
 
     // Checkboxes
@@ -523,11 +541,11 @@ window.handleConstellationFileImport = (event) => {
         }
 
         // Vérifier que numSats est un multiple de numPlanes
-        if (numSats % numPlanes !== 0) {
-            alert(`Le nombre de satellites (${numSats}) doit être un multiple du nombre de plans (${numPlanes}).\nSatellites par plan: ${numSats / numPlanes}`);
-            event.target.value = '';
-            return;
-        }
+        // if (numSats % numPlanes !== 0) {
+        //     alert(`Le nombre de satellites (${numSats}) doit être un multiple du nombre de plans (${numPlanes}).\nSatellites par plan: ${numSats / numPlanes}`);
+        //     event.target.value = '';
+        //     return;
+        // }
 
         if (isNaN(phase) || phase < 0 || phase >= numPlanes) {
             alert(`Phase invalide. Doit être entre 0 et ${numPlanes - 1}.`);

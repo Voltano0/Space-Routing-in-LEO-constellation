@@ -86,7 +86,7 @@ export function createConstellation(scene, params) {
     clearSceneObjects(scene, orbits);
     clearSceneObjects(scene, links);
 
-    const { altitude, inclination, numSats, numPlanes, phase } = params;
+    const { altitude, inclination, numSats, numPlanes, phase, satelliteSize } = params;
     const satsPerPlane = Math.floor(numSats / numPlanes);
     const extraSats = numSats % numPlanes; // Satellites restants à distribuer
 
@@ -126,7 +126,7 @@ export function createConstellation(scene, params) {
             const trueAnomaly = (s * 360) / satsInThisPlane + (p * phase * 360) / numSats;
 
             // Créer le satellite avec la couleur du plan
-            const satGeometry = new THREE.SphereGeometry(0.3, 16, 16);
+            const satGeometry = new THREE.SphereGeometry(satelliteSize || 0.3, 16, 16);
             const satMaterial = new THREE.MeshPhongMaterial({
                 color: planeColor,
                 emissive: planeColor,
