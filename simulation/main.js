@@ -133,7 +133,9 @@ function animate() {
     }
 
     // Mettre à jour le temps de simulation (accéléré par speedFactor)
-    simulationTime += deltaTime * params.speedFactor;
+    if (params.animate) {
+        simulationTime += deltaTime * params.speedFactor;
+    }
 
     // Mettre à jour les infos du satellite sélectionné en temps réel
     if (getSelectedSatelliteIndex() !== -1) {
@@ -141,10 +143,14 @@ function animate() {
     }
 
     // Rotation de la Terre à vitesse réelle (accélérée par speedFactor)
-    rotateEarth(deltaTime, params.speedFactor);
+    if (params.animate) {
+        rotateEarth(deltaTime, params.speedFactor);
+    }
 
     // Mettre à jour les positions des stations au sol (suivent la Terre)
-    updateGroundStations(deltaTime, params.speedFactor);
+    if (params.animate) {
+        updateGroundStations(deltaTime, params.speedFactor);
+    }
 
     // Mettre à jour les liens dynamiques ground-satellite si activés
     if (params.showGroundScope) {
