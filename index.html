@@ -628,6 +628,16 @@
 
         <button id="updateBtn">Mettre à jour la constellation</button>
 
+        <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid #333;">
+            <input type="file" id="import-constellation-file" accept=".txt" style="display: none;" onchange="handleConstellationFileImport(event)">
+            <button onclick="document.getElementById('import-constellation-file').click()" style="background: #FF9800;">
+                Importer constellation (.txt)
+            </button>
+            <div style="font-size: 10px; color: #888; margin-top: 5px;">
+                Format: altitude:inclinaison:nbr_sat/nbr_plans/phase
+            </div>
+        </div>
+
         <div class="checkbox-group">
             <input type="checkbox" id="showOrbits" checked>
             <label for="showOrbits">Afficher les orbites</label>

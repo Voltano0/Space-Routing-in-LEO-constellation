@@ -177,8 +177,8 @@ function onWindowResize() {
 
 // Configurer les contrôles de l'interface
 function setupControls() {
-    // Sliders normaux
-    const sliders = ['altitude', 'inclination', 'numSats', 'phase'];
+    // Sliders normaux (sans numSats, on le gère séparément)
+    const sliders = ['altitude', 'inclination', 'phase'];
     sliders.forEach(id => {
         const slider = document.getElementById(id);
         const display = document.getElementById(`${id}-value`);
@@ -189,11 +189,25 @@ function setupControls() {
         });
     });
 
-    // Slider numPlanes avec ajustement dynamique de la phase
+    // Sliders numSats et numPlanes avec synchronisation
+    const numSatsSlider = document.getElementById('numSats');
+    const numSatsDisplay = document.getElementById('numSats-value');
     const numPlanesSlider = document.getElementById('numPlanes');
     const numPlanesDisplay = document.getElementById('numPlanes-value');
     const phaseSlider = document.getElementById('phase');
     const phaseDisplay = document.getElementById('phase-value');
+
+    // Fonction pour ajuster numSats au multiple le plus proche de numPlanes
+    function adjustNumSatsToMultiple(numSats, numPlanes) {
+        const satsPerPlane = Math.round(numSats / numPlanes);
+        return Math.max(numPlanes, satsPerPlane * numPlanes); // Minimum 1 satellite par plan
+    }
+
+    // Fonction pour mettre à jour l'affichage du nombre de satellites
+    function updateNumSatsDisplay(numSats, numPlanes) {
+        const satsPerPlane = numSats / numPlanes;
+        numSatsDisplay.textContent = `${numSats} (${satsPerPlane} sat/plan)`;
+    }
 
     // Fonction pour ajuster le max de phase
     function updatePhaseMax(numPlanes) {
@@ -211,6 +225,20 @@ function setupControls() {
     // Initialiser le max de phase au chargement
     updatePhaseMax(params.numPlanes);
 
+    // Initialiser l'affichage du nombre de satellites au chargement
+    updateNumSatsDisplay(params.numSats, params.numPlanes);
+
+    // Listener pour numSats - ajuste au multiple de numPlanes
+    numSatsSlider.addEventListener('input', (e) => {
+        let numSats = parseFloat(e.target.value);
+        const adjustedNumSats = adjustNumSatsToMultiple(numSats, params.numPlanes);
+
+        params.numSats = adjustedNumSats;
+        numSatsSlider.value = adjustedNumSats;
+        updateNumSatsDisplay(adjustedNumSats, params.numPlanes);
+    });
+
+    // Listener pour numPlanes - ajuste numSats et phase
     numPlanesSlider.addEventListener('input', (e) => {
         const numPlanes = parseFloat(e.target.value);
         params.numPlanes = numPlanes;
@@ -218,6 +246,12 @@ function setupControls() {
 
         // Ajuster le max de phase à numPlanes - 1
         updatePhaseMax(numPlanes);
+
+        // Ajuster numSats pour rester un multiple
+        const adjustedNumSats = adjustNumSatsToMultiple(params.numSats, numPlanes);
+        params.numSats = adjustedNumSats;
+        numSatsSlider.value = adjustedNumSats;
+        updateNumSatsDisplay(adjustedNumSats, numPlanes);
     });
 
     // Slider pour la vitesse de simulation (avec mapping spécial)
@@ -419,6 +453,121 @@ window.handleStationsFileImport = (event) => {
         alert(message);
 
         // Réinitialiser le input file pour permettre de réimporter le même fichier
+        event.target.value = '';
+    };
+
+    reader.onerror = () => {
+        alert('Erreur lors de la lecture du fichier');
+        event.target.value = '';
+    };
+
+    reader.readAsText(file);
+};
+
+// Fonction pour importer une constellation depuis un fichier TXT
+window.handleConstellationFileImport = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const content = e.target.result.trim();
+
+        // Parser le format: altitude:inclinaison:nbr_sat/nbr_plans/phase
+        // Exemple: 550:55:24/6/1
+        const parts = content.split(':');
+
+        if (parts.length !== 3) {
+            alert('Format invalide. Format attendu: altitude:inclinaison:nbr_sat/nbr_plans/phase\nExemple: 550:55:24/6/1');
+            event.target.value = '';
+            return;
+        }
+
+        const altitude = parseFloat(parts[0]);
+        const inclination = parseFloat(parts[1]);
+        const walkerParts = parts[2].split('/');
+
+        if (walkerParts.length !== 3) {
+            alert('Format Walker Delta invalide. Format attendu: nbr_sat/nbr_plans/phase\nExemple: 24/6/1');
+            event.target.value = '';
+            return;
+        }
+
+        const numSats = parseInt(walkerParts[0]);
+        const numPlanes = parseInt(walkerParts[1]);
+        const phase = parseInt(walkerParts[2]);
+
+        // Validation des valeurs (pas de limites max pour l'import)
+        if (isNaN(altitude) || altitude < 0) {
+            alert('Altitude invalide.');
+            event.target.value = '';
+            return;
+        }
+
+        if (isNaN(inclination) || inclination < 0 || inclination > 180) {
+            alert('Inclinaison invalide. Doit être entre 0 et 180 degrés.');
+            event.target.value = '';
+            return;
+        }
+
+        if (isNaN(numSats) || numSats < 1) {
+            alert('Nombre de satellites invalide. Doit être au moins 1.');
+            event.target.value = '';
+            return;
+        }
+
+        if (isNaN(numPlanes) || numPlanes < 1) {
+            alert('Nombre de plans invalide. Doit être au moins 1.');
+            event.target.value = '';
+            return;
+        }
+
+        // Vérifier que numSats est un multiple de numPlanes
+        if (numSats % numPlanes !== 0) {
+            alert(`Le nombre de satellites (${numSats}) doit être un multiple du nombre de plans (${numPlanes}).\nSatellites par plan: ${numSats / numPlanes}`);
+            event.target.value = '';
+            return;
+        }
+
+        if (isNaN(phase) || phase < 0 || phase >= numPlanes) {
+            alert(`Phase invalide. Doit être entre 0 et ${numPlanes - 1}.`);
+            event.target.value = '';
+            return;
+        }
+
+        // Mettre à jour les paramètres
+        params.altitude = altitude;
+        params.inclination = inclination;
+        params.numSats = numSats;
+        params.numPlanes = numPlanes;
+        params.phase = phase;
+
+        // Mettre à jour les sliders et affichages
+        document.getElementById('altitude').value = altitude;
+        document.getElementById('altitude-value').textContent = altitude;
+
+        document.getElementById('inclination').value = inclination;
+        document.getElementById('inclination-value').textContent = inclination;
+
+        document.getElementById('numSats').value = numSats;
+        document.getElementById('numSats-value').textContent = `${numSats} (${numSats / numPlanes} sat/plan)`;
+
+        document.getElementById('numPlanes').value = numPlanes;
+        document.getElementById('numPlanes-value').textContent = numPlanes;
+
+        document.getElementById('phase').value = phase;
+        document.getElementById('phase').max = numPlanes - 1;
+        document.getElementById('phase-value').textContent = phase;
+
+        // Créer la constellation
+        createConstellation(scene, params);
+        updateSatelliteGrid(params, (satIndex) => {
+            highlightSatellite(satIndex, showSatelliteInfo);
+        });
+
+        alert(`Constellation importée avec succès!\n\nAltitude: ${altitude} km\nInclinaison: ${inclination}°\nSatellites: ${numSats} (${numSats / numPlanes} par plan)\nPlans: ${numPlanes}\nPhase: ${phase}`);
+
+        // Réinitialiser le input file
         event.target.value = '';
     };
 
