@@ -11,9 +11,7 @@ export function createEarth(scene) {
     const textureLoader = new THREE.TextureLoader();
     const earthTexture = textureLoader.load(
         'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/planets/earth_atmos_2048.jpg',
-        () => {
-            console.log('Texture de la Terre chargée avec succès');
-        },
+        undefined,
         undefined,
         (error) => {
             console.error('Erreur lors du chargement de la texture:', error);

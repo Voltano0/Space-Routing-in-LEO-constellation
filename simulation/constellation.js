@@ -243,8 +243,6 @@ export function createNeighborLinks(scene) {
             }
         }
     }
-
-    console.log(`Created ${neighborLinks.length} neighbor links`);
 }
 
 // Mettre à jour les positions des liens voisins
