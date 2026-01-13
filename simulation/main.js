@@ -271,19 +271,20 @@ function setupControls() {
 
     document.getElementById('showGrid').addEventListener('change', (e) => {
         params.showGrid = e.target.checked;
-        updateSatelliteGrid(params, (satIndex) => {
-            highlightSatellite(satIndex, showSatelliteInfo);
-        });
+        document.getElementById('grid-view').style.display = e.target.checked ? 'block' : 'none';
+        if (e.target.checked) {
+            updateSatelliteGrid(params, (satIndex) => {
+                highlightSatellite(satIndex, showSatelliteInfo);
+            });
+        }
     });
 
     document.getElementById('showMetricsPanel').addEventListener('change', (e) => {
-        const metricsPanel = document.getElementById('metrics-panel');
-        metricsPanel.style.display = e.target.checked ? 'block' : 'none';
+        document.getElementById('metrics-panel').style.display = e.target.checked ? 'block' : 'none';
     });
 
     document.getElementById('showGroundStationsPanel').addEventListener('change', (e) => {
-        const groundStationsPanel = document.getElementById('ground-stations');
-        groundStationsPanel.style.display = e.target.checked ? 'block' : 'none';
+        document.getElementById('ground-stations').style.display = e.target.checked ? 'block' : 'none';
     });
 
     // Bouton de mise à jour
