@@ -1,17 +1,22 @@
 import ContactMetrics from './contactMetrics.js';
+import ISLMetrics from './islMetrics.js';
 import { exportAllToCSV, downloadJSON, downloadSummary, downloadMininet } from './exporters.js';
 import { DEFAULT_SAMPLING_INTERVAL, DEFAULT_ORBITAL_PERIODS } from '../constants.js';
 
 class MetricsCollector {
     constructor() {
         this.contactMetrics = new ContactMetrics();
+        this.islMetrics = new ISLMetrics();
 
         // Configuration de la collecte
         this.samplingInterval = DEFAULT_SAMPLING_INTERVAL;
         this.targetOrbitalPeriods = DEFAULT_ORBITAL_PERIODS;
         this.orbitalPeriod = 0; // Période orbitale en minutes
 
-        // État de la collectew
+        // Mode de collecte : 'neighbor' (ancien) ou 'isl' (nouveau)
+        this.collectionMode = 'isl';
+
+        // État de la collecte
         this.isCollecting = false;
         this.lastSampleTime = 0;
         this.collectionStartTime = 0;
@@ -23,17 +28,36 @@ class MetricsCollector {
     }
 
     // Démarrer la collecte
-    startCollection(orbitalPeriod) {
+    startCollection(orbitalPeriod, constellation = null, mode = 'isl') {
         if (this.isCollecting) {
             console.warn('Collection already in progress');
             return;
         }
 
-        // Stocker la période orbitale pour l'export
+        // Stocker le mode et la période orbitale
+        this.collectionMode = mode;
         this.orbitalPeriod = orbitalPeriod;
 
-        // Réinitialiser les métriques
-        this.contactMetrics.reset();
+        // Réinitialiser les métriques appropriées
+        if (mode === 'isl') {
+            this.islMetrics.reset();
+
+            // Générer les paires ISL si constellation fournie
+            if (constellation) {
+                this.islMetrics.generateISLPairs(
+                    constellation.numSats,
+                    constellation.numPlanes,
+                    constellation.phase
+                );
+            }
+
+            // Pour ISL : collecter sur 1 période orbitale seulement
+            this.targetOrbitalPeriods = 1;
+        } else {
+            this.contactMetrics.reset();
+            // Pour neighbor links : garder 5 périodes
+            this.targetOrbitalPeriods = DEFAULT_ORBITAL_PERIODS;
+        }
 
         // Calculer la durée de collecte
         this.collectionDuration = orbitalPeriod * 60 * this.targetOrbitalPeriods; // en secondes
@@ -43,6 +67,8 @@ class MetricsCollector {
         this.lastSampleTime = 0;
         this.collectionStartTime = 0;
         this.samplesCollected = 0;
+
+        console.log(`Starting ${mode} metrics collection for ${this.targetOrbitalPeriods} orbital period(s)`);
     }
 
     // Arrêter la collecte
@@ -65,8 +91,12 @@ class MetricsCollector {
             this.collectionStartTime = currentTime;
             this.lastSampleTime = currentTime;
 
-            // Définir le décalage de temps pour que les contacts commencent à 0
-            this.contactMetrics.setTimeOffset(currentTime);
+            // Définir le décalage de temps pour que les contacts/ISL commencent à 0
+            if (this.collectionMode === 'isl') {
+                this.islMetrics.setTimeOffset(currentTime);
+            } else {
+                this.contactMetrics.setTimeOffset(currentTime);
+            }
         }
 
         const elapsedTime = currentTime - this.collectionStartTime;
@@ -98,19 +128,35 @@ class MetricsCollector {
 
     // Prendre un échantillon de métriques
     sample(satellites, currentTime) {
-        // Collecter les contacts ISL
-        this.contactMetrics.update(satellites, currentTime);
+        if (this.collectionMode === 'isl') {
+            // Collecter les échantillons ISL
+            this.islMetrics.sampleISLLinks(satellites, currentTime);
+        } else {
+            // Collecter les contacts neighbor links (ancien système)
+            this.contactMetrics.update(satellites, currentTime);
+        }
     }
 
     // Callback quand la collecte est terminée
     onCollectionComplete() {
         console.log('=== Collection Complete ===');
 
-        // Afficher résumé dans la console
-        const contactStats = this.contactMetrics.getStats();
+        if (this.collectionMode === 'isl') {
+            // Afficher résumé ISL dans la console
+            const islStats = this.islMetrics.getGlobalStats();
 
-        console.log(`Total ISL contacts: ${contactStats.totalContacts}`);
-        console.log(`Average contact duration: ${contactStats.avgDuration.toFixed(2)}s`);
+            console.log(`Total ISL links: ${islStats.totalISLLinks}`);
+            console.log(`Total samples: ${islStats.totalSamples}`);
+            console.log(`Average latency (intra-plane): ${islStats.avgLatencyIntraPlane_ms.toFixed(3)}ms`);
+            console.log(`Average latency (inter-plane): ${islStats.avgLatencyInterPlane_ms.toFixed(3)}ms`);
+            console.log(`Average latency (overall): ${islStats.avgLatencyOverall_ms.toFixed(3)}ms`);
+        } else {
+            // Afficher résumé neighbor links dans la console
+            const contactStats = this.contactMetrics.getStats();
+
+            console.log(`Total contacts: ${contactStats.totalContacts}`);
+            console.log(`Average contact duration: ${contactStats.avgDuration.toFixed(2)}s`);
+        }
 
         // Activer les boutons d'export dans l'UI
         this.enableExportButtons();
@@ -120,6 +166,7 @@ class MetricsCollector {
     updateProgressUI() {
         const progress = (this.samplesCollected / this.totalSamplesTarget) * 100;
 
+        // UI générique (utilisée par les deux modes)
         const progressBar = document.getElementById('collection-progress-bar');
         const progressText = document.getElementById('collection-progress-text');
         const samplesText = document.getElementById('samples-collected');
@@ -136,13 +183,35 @@ class MetricsCollector {
             samplesText.textContent = `${this.samplesCollected} / ${this.totalSamplesTarget}`;
         }
 
-        // Mettre à jour les statistiques en temps réel
-        const contactStats = this.contactMetrics.getStats();
+        // UI spécifique ISL
+        const islProgressBar = document.getElementById('isl-progress-fill');
+        const islProgressText = document.getElementById('isl-progress-text');
 
-        const islContactsEl = document.getElementById('isl-contacts-count');
+        if (islProgressBar) {
+            islProgressBar.style.width = `${progress.toFixed(1)}%`;
+        }
 
-        // Afficher le nombre de liens voisins actifs (pas le total cumulé)
-        if (islContactsEl) islContactsEl.textContent = contactStats.activeContacts;
+        if (islProgressText) {
+            islProgressText.textContent = `${progress.toFixed(1)}%`;
+        }
+
+        // Mettre à jour les statistiques en temps réel selon le mode
+        if (this.collectionMode === 'isl') {
+            const islStats = this.islMetrics.getGlobalStats();
+            const islCountEl = document.getElementById('isl-links-count');
+            const islSamplesEl = document.getElementById('isl-samples-count');
+            const islAvgLatencyEl = document.getElementById('isl-avg-latency');
+
+            if (islCountEl) islCountEl.textContent = islStats.totalISLLinks;
+            if (islSamplesEl) islSamplesEl.textContent = this.samplesCollected;
+            if (islAvgLatencyEl) islAvgLatencyEl.textContent = islStats.avgLatencyOverall_ms.toFixed(3);
+        } else {
+            const contactStats = this.contactMetrics.getStats();
+            const islContactsEl = document.getElementById('isl-contacts-count');
+
+            // Afficher le nombre de liens voisins actifs (pas le total cumulé)
+            if (islContactsEl) islContactsEl.textContent = contactStats.activeContacts;
+        }
     }
 
     // Activer les boutons d'export

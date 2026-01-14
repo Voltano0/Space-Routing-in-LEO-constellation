@@ -8,6 +8,7 @@ import { addGroundStation, removeGroundStation, updateGroundStationList, updateG
 import { showSatelliteInfo, closeSatelliteInfo, updateSelectedSatelliteInfo, getSelectedSatelliteIndex } from './ui.js';
 import { handleStationsFileImport, handleConstellationFileImport } from './import.js';
 import MetricsCollector from '../datas/metricsCollector.js';
+import { downloadISLMininet, downloadISLJSON, downloadISLCSV, downloadISLSummary } from '../datas/exporters.js';
 
 // Variables globales
 let scene, camera, renderer, controls;
@@ -358,6 +359,32 @@ function setupMetricsControls() {
     const exportSummaryBtn = document.getElementById('export-summary-btn');
     const progressDiv = document.getElementById('collection-progress');
 
+    const modeSelect = document.getElementById('metrics-mode-select');
+    const islExportModeGroup = document.getElementById('isl-export-mode-group');
+    const islExportMode = document.getElementById('isl-export-mode');
+    const islStatsPanel = document.getElementById('isl-stats-panel');
+    const neighborStatsPanel = document.getElementById('neighbor-stats-panel');
+    const orbitalPeriodsValue = document.getElementById('orbital-periods-value');
+
+    // Gérer le changement de mode (ISL / Neighbor)
+    modeSelect.addEventListener('change', () => {
+        const mode = modeSelect.value;
+
+        if (mode === 'isl') {
+            // Afficher les options ISL
+            islExportModeGroup.style.display = 'block';
+            islStatsPanel.style.display = 'block';
+            neighborStatsPanel.style.display = 'none';
+            orbitalPeriodsValue.textContent = '1';
+        } else {
+            // Afficher les options Neighbor
+            islExportModeGroup.style.display = 'none';
+            islStatsPanel.style.display = 'none';
+            neighborStatsPanel.style.display = 'block';
+            orbitalPeriodsValue.textContent = '5';
+        }
+    });
+
     // Bouton démarrer la collecte
     startBtn.addEventListener('click', () => {
         if (!metricsCollector.isCollecting) {
@@ -367,7 +394,16 @@ function setupMetricsControls() {
                 return;
             }
 
-            metricsCollector.startCollection(orbitalPeriod);
+            const mode = modeSelect.value;
+            const constellation = {
+                numSats: params.numSats,
+                numPlanes: params.numPlanes,
+                phase: params.phase,
+                altitude: params.altitude,
+                inclination: params.inclination
+            };
+
+            metricsCollector.startCollection(orbitalPeriod, constellation, mode);
             startBtn.textContent = 'Collecte en cours...';
             startBtn.disabled = true;
             progressDiv.style.display = 'block';
@@ -390,15 +426,28 @@ function setupMetricsControls() {
 
     // Boutons d'export
     exportJSONBtn.addEventListener('click', () => {
-        metricsCollector.exportJSON();
+        const mode = metricsCollector.collectionMode;
+
+        if (mode === 'isl') {
+            downloadISLJSON(metricsCollector.islMetrics);
+        } else {
+            metricsCollector.exportJSON();
+        }
     });
 
     exportCSVBtn.addEventListener('click', () => {
-        metricsCollector.exportCSV();
+        const mode = metricsCollector.collectionMode;
+
+        if (mode === 'isl') {
+            const orbitalPeriod = getOrbitalPeriod();
+            downloadISLCSV(metricsCollector.islMetrics, orbitalPeriod);
+        } else {
+            metricsCollector.exportCSV();
+        }
     });
 
     exportMininetBtn.addEventListener('click', () => {
-        // Récupérer les paramètres de la constellation
+        const mode = metricsCollector.collectionMode;
         const constellation = {
             numSats: params.numSats,
             numPlanes: params.numPlanes,
@@ -406,11 +455,32 @@ function setupMetricsControls() {
             altitude: params.altitude,
             inclination: params.inclination
         };
-        metricsCollector.exportMininet(constellation);
+        const orbitalPeriod = getOrbitalPeriod();
+
+        if (mode === 'isl') {
+            const exportMode = islExportMode.value;
+            downloadISLMininet(metricsCollector.islMetrics, constellation, orbitalPeriod, exportMode);
+        } else {
+            metricsCollector.exportMininet(constellation);
+        }
     });
 
     exportSummaryBtn.addEventListener('click', () => {
-        metricsCollector.exportSummary();
+        const mode = metricsCollector.collectionMode;
+
+        if (mode === 'isl') {
+            const constellation = {
+                numSats: params.numSats,
+                numPlanes: params.numPlanes,
+                phase: params.phase,
+                altitude: params.altitude,
+                inclination: params.inclination
+            };
+            const orbitalPeriod = getOrbitalPeriod();
+            downloadISLSummary(metricsCollector.islMetrics, constellation, orbitalPeriod);
+        } else {
+            metricsCollector.exportSummary();
+        }
     });
 }
 

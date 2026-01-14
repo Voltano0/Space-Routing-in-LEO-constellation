@@ -137,11 +137,11 @@ export function handleConstellationFileImport(event, scene, params) {
         }
 
         // Vérifier que numSats est un multiple de numPlanes
-        if (numSats % numPlanes !== 0) {
-            alert(`Le nombre de satellites (${numSats}) doit être un multiple du nombre de plans (${numPlanes}).\nSatellites par plan: ${numSats / numPlanes}`);
-            event.target.value = '';
-            return;
-        }
+        // if (numSats % numPlanes !== 0) {
+        //     alert(`Le nombre de satellites (${numSats}) doit être un multiple du nombre de plans (${numPlanes}).\nSatellites par plan: ${numSats / numPlanes}`);
+        //     event.target.value = '';
+        //     return;
+        // }
 
         if (isNaN(phase) || phase < 0 || phase >= numPlanes) {
             alert(`Phase invalide. Doit être entre 0 et ${numPlanes - 1}.`);

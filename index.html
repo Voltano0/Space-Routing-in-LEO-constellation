@@ -752,12 +752,30 @@
 
     <div id="metrics-panel">
         <h3>
-            <span>Collecte de Métriques</span>
+            <span>🛰️ Collecte de Métriques</span>
             <button class="panel-close-btn" onclick="document.getElementById('metrics-panel').style.display='none'; document.getElementById('showMetricsPanel').checked=false;">×</button>
         </h3>
 
+        <!-- Sélecteur de mode ISL / Neighbor -->
+        <div class="control-group" style="margin-bottom: 15px;">
+            <label for="metrics-mode-select">Mode de collecte</label>
+            <select id="metrics-mode-select" style="width: 100%; padding: 8px; border-radius: 5px; background: rgba(255,255,255,0.1); color: white; border: 1px solid rgba(255,255,255,0.2);">
+                <option value="isl" selected>Liens ISL (1 période)</option>
+                <option value="neighbor">Liens voisins (5 périodes)</option>
+            </select>
+        </div>
+
+        <!-- Mode d'export ISL -->
+        <div class="control-group" id="isl-export-mode-group" style="margin-bottom: 15px;">
+            <label for="isl-export-mode">Mode d'export ISL</label>
+            <select id="isl-export-mode" style="width: 100%; padding: 8px; border-radius: 5px; background: rgba(255,255,255,0.1); color: white; border: 1px solid rgba(255,255,255,0.2);">
+                <option value="average" selected>Moyenne statique</option>
+                <option value="timeseries">Temps réel (profil)</option>
+            </select>
+        </div>
+
         <div class="metrics-info">
-            <p id="metrics-info-text">Collecte sur <span id="orbital-periods-value">-</span> périodes orbitales avec échantillonnage toutes les <span id="sampling-interval-value">-</span> secondes.</p>
+            <p id="metrics-info-text">Collecte sur <span id="orbital-periods-value">1</span> période orbitale avec échantillonnage toutes les <span id="sampling-interval-value">20</span> secondes.</p>
         </div>
 
         <button id="start-collection-btn" class="start-collection-btn">Démarrer la collecte</button>
@@ -775,8 +793,26 @@
             </div>
         </div>
 
-        <div class="metrics-stats">
-            <h4>Statistiques en temps réel</h4>
+        <!-- Statistiques mode ISL -->
+        <div class="metrics-stats" id="isl-stats-panel">
+            <h4>Statistiques ISL en temps réel</h4>
+            <div class="stat-row">
+                <span class="stat-label">Liens ISL:</span>
+                <span class="stat-value" id="isl-links-count">0</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Échantillons:</span>
+                <span class="stat-value" id="isl-samples-count">0</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Latence moyenne:</span>
+                <span class="stat-value" id="isl-avg-latency">0.000</span> ms
+            </div>
+        </div>
+
+        <!-- Statistiques mode Neighbor -->
+        <div class="metrics-stats" id="neighbor-stats-panel" style="display: none;">
+            <h4>Statistiques Liens Voisins</h4>
             <div class="stat-row">
                 <span class="stat-label">Liens voisins actifs:</span>
                 <span class="stat-value" id="isl-contacts-count">0</span>

@@ -166,7 +166,7 @@ export function createConstellation(scene, params) {
 export function createISL(scene, params) {
     clearSceneObjects(scene, links);
 
-    const { numPlanes, numSats } = params;
+    const { numPlanes, numSats, phase } = params;
     const satsPerPlane = Math.floor(numSats / numPlanes);
     const extraSats = numSats % numPlanes;
 
@@ -182,7 +182,7 @@ export function createISL(scene, params) {
         satIndexOffset += satsInThisPlane;
     }
 
-    // Créer les liens pour chaque plan
+    // Créer les liens intra-plan pour tous les plans
     for (let p = 0; p < numPlanes; p++) {
         const currentPlane = planeInfo[p];
 
@@ -195,20 +195,31 @@ export function createISL(scene, params) {
             scene.add(link);
             links.push(link);
         }
+    }
 
-        // Liens inter-plan (satellite dans le plan adjacent)
-        if (p < numPlanes - 1) {
-            const nextPlane = planeInfo[p + 1];
-            const minCount = Math.min(currentPlane.count, nextPlane.count);
+    // Créer les liens inter-plan (gauche-droite entre plans adjacents)
+    // Le décalage optimal est déterminé par le phasage Walker Delta
+    // phase représente le décalage en nombre de satellites entre plans adjacents
+    const phaseOffset = Math.round(phase);
 
-            for (let s = 0; s < minCount; s++) {
-                const satIndex = currentPlane.startIndex + s;
-                const nextSatIndex = nextPlane.startIndex + s;
+    for (let p = 0; p < numPlanes; p++) {
+        const currentPlane = planeInfo[p];
+        const nextPlane = planeInfo[(p + 1) % numPlanes]; // Utiliser modulo pour boucler
 
-                const link = createLink(satellites[satIndex], satellites[nextSatIndex], LINK_COLORS.ISL_INTER_PLANE);
-                scene.add(link);
-                links.push(link);
-            }
+        // Connecter chaque satellite au satellite le plus proche dans le plan adjacent
+        // en tenant compte du phasage Walker
+        for (let s = 0; s < currentPlane.count; s++) {
+            const satIndex = currentPlane.startIndex + s;
+
+            // Calculer l'index du satellite adjacent en tenant compte du phasage
+            // Utiliser -phaseOffset pour trouver le plus proche
+            // On utilise modulo pour boucler dans le plan (ajouter count avant le modulo pour gérer les négatifs)
+            const adjacentSatIndexInPlane = (s - phaseOffset + nextPlane.count) % nextPlane.count;
+            const adjacentSatIndex = nextPlane.startIndex + adjacentSatIndexInPlane;
+
+            const link = createLink(satellites[satIndex], satellites[adjacentSatIndex], LINK_COLORS.ISL_INTER_PLANE);
+            scene.add(link);
+            links.push(link);
         }
     }
 }
@@ -222,7 +233,15 @@ function createLink(sat1, sat2, color) {
         transparent: true,
         opacity: 0.3
     });
-    return new THREE.Line(geometry, material);
+    const link = new THREE.Line(geometry, material);
+
+    // Stocker les références aux satellites pour la mise à jour
+    link.userData = {
+        sat1: sat1,
+        sat2: sat2
+    };
+
+    return link;
 }
 
 // La fonction checkLineOfSight est maintenant importée depuis utils/raytracing.js
@@ -285,23 +304,18 @@ export function updateSatellites(deltaTime, speedFactor) {
     });
 
     // Mettre à jour les liens ISL
-    if (links.length > 0) {
-        links.forEach((link, index) => {
-            const positions = link.geometry.attributes.position.array;
-            const sat1Pos = satellites[Math.floor(index / 2)].position;
-            const sat2Pos = satellites[Math.floor(index / 2) + 1].position;
+    links.forEach(link => {
+        const { sat1, sat2 } = link.userData;
+        const positions = link.geometry.attributes.position.array;
 
-            if (sat1Pos && sat2Pos) {
-                positions[0] = sat1Pos.x;
-                positions[1] = sat1Pos.y;
-                positions[2] = sat1Pos.z;
-                positions[3] = sat2Pos.x;
-                positions[4] = sat2Pos.y;
-                positions[5] = sat2Pos.z;
-                link.geometry.attributes.position.needsUpdate = true;
-            }
-        });
-    }
+        positions[0] = sat1.position.x;
+        positions[1] = sat1.position.y;
+        positions[2] = sat1.position.z;
+        positions[3] = sat2.position.x;
+        positions[4] = sat2.position.y;
+        positions[5] = sat2.position.z;
+        link.geometry.attributes.position.needsUpdate = true;
+    });
 }
 
 // Getters pour accéder aux satellites/orbites/liens depuis d'autres modules
