@@ -4,11 +4,11 @@ import { SPEED_FACTORS, DEFAULT_SAMPLING_INTERVAL, DEFAULT_ORBITAL_PERIODS } fro
 import { createEarth, rotateEarth, createStars } from './earth.js';
 import { createConstellation, updateSatellites, createISL, getOrbits, getLinks, getSatellites, getOrbitalPeriod, createNeighborLinks, updateNeighborLinks, getNeighborLinks, clearSceneObjects } from './constellation.js';
 import { updateSatelliteGrid, highlightSatellite } from './grid.js';
-import { addGroundStation, removeGroundStation, updateGroundStationList, updateGroundStations, toggleGroundScope, updateGroundSatelliteLinks, clearGroundSatelliteLinks } from './groundStations.js';
+import { addGroundStation, removeGroundStation, updateGroundStationList, updateGroundStations, toggleGroundScope, updateGroundSatelliteLinks, clearGroundSatelliteLinks, getGroundStations, getGroundStationMeshes, getStationTrackingState } from './groundStations.js';
 import { showSatelliteInfo, closeSatelliteInfo, updateSelectedSatelliteInfo, getSelectedSatelliteIndex } from './ui.js';
 import { handleStationsFileImport, handleConstellationFileImport } from './import.js';
 import MetricsCollector from '../datas/metricsCollector.js';
-import { downloadISLMininet, downloadISLJSON, downloadISLCSV, downloadISLSummary } from '../datas/exporters.js';
+import { downloadISLMininet, downloadISLJSON, downloadISLCSV, downloadISLSummary, downloadISLGSMininet } from '../datas/exporters.js';
 
 // Variables globales
 let scene, camera, renderer, controls;
@@ -158,7 +158,12 @@ function animate() {
     // Mettre à jour les liens dynamiques ground-satellite si activés
     if (params.showGroundScope) {
         const satellites = getSatellites();
-        updateGroundSatelliteLinks(scene, satellites);
+        updateGroundSatelliteLinks(scene, satellites, simulationTime);
+
+        // Mettre à jour l'affichage des stations toutes les 60 frames (~1 seconde)
+        if (frameCount % 60 === 0) {
+            updateGroundStationList();
+        }
     }
 
     // Mettre à jour la collecte de métriques si elle est active
@@ -366,6 +371,21 @@ function setupMetricsControls() {
     const neighborStatsPanel = document.getElementById('neighbor-stats-panel');
     const orbitalPeriodsValue = document.getElementById('orbital-periods-value');
 
+    // Éléments GS
+    const includeGSGroup = document.getElementById('include-gs-group');
+    const gsStatsPanel = document.getElementById('gs-stats-panel');
+
+    // Fonction pour mettre à jour la visibilité des options GS
+    function updateGSOptionsVisibility() {
+        const mode = modeSelect.value;
+        const exportMode = islExportMode.value;
+        const showGS = mode === 'isl' && exportMode === 'timeseries';
+
+        if (includeGSGroup) {
+            includeGSGroup.style.display = showGS ? 'flex' : 'none';
+        }
+    }
+
     // Gérer le changement de mode (ISL / Neighbor)
     modeSelect.addEventListener('change', () => {
         const mode = modeSelect.value;
@@ -382,8 +402,19 @@ function setupMetricsControls() {
             islStatsPanel.style.display = 'none';
             neighborStatsPanel.style.display = 'block';
             orbitalPeriodsValue.textContent = '5';
+
+            // Cacher les stats GS
+            if (gsStatsPanel) gsStatsPanel.style.display = 'none';
         }
+
+        updateGSOptionsVisibility();
     });
+
+    // Gérer le changement de mode d'export ISL
+    islExportMode.addEventListener('change', updateGSOptionsVisibility);
+
+    // Initialiser la visibilité
+    updateGSOptionsVisibility();
 
     // Bouton démarrer la collecte
     startBtn.addEventListener('click', () => {
@@ -403,7 +434,33 @@ function setupMetricsControls() {
                 inclination: params.inclination
             };
 
-            metricsCollector.startCollection(orbitalPeriod, constellation, mode);
+            // Options Ground Stations
+            const includeGSCheckbox = document.getElementById('include-ground-stations');
+            const includeGS = includeGSCheckbox && includeGSCheckbox.checked;
+            const groundStations = getGroundStations();
+
+            // Préparer les options GS
+            const gsOptions = {
+                includeGroundStations: includeGS && groundStations.length > 0,
+                groundStations: groundStations,
+                groundStationMeshes: getGroundStationMeshes(),
+                getTrackingState: getStationTrackingState
+            };
+
+            // Vérifier si GS demandées mais pas de stations
+            if (includeGS && groundStations.length === 0) {
+                alert('Aucune ground station définie. Ajoutez des stations ou désactivez l\'option.');
+                return;
+            }
+
+            // Activer automatiquement le scope GS si on collecte les métriques GS
+            if (gsOptions.includeGroundStations && !params.showGroundScope) {
+                params.showGroundScope = true;
+                document.getElementById('showGroundScope').checked = true;
+                toggleGroundScope(true);
+            }
+
+            metricsCollector.startCollection(orbitalPeriod, constellation, mode, gsOptions);
             startBtn.textContent = 'Collecte en cours...';
             startBtn.disabled = true;
             progressDiv.style.display = 'block';
@@ -459,7 +516,21 @@ function setupMetricsControls() {
 
         if (mode === 'isl') {
             const exportMode = islExportMode.value;
-            downloadISLMininet(metricsCollector.islMetrics, constellation, orbitalPeriod, exportMode);
+
+            // Vérifier si on doit exporter avec GS
+            if (metricsCollector.hasGroundStations() && exportMode === 'timeseries') {
+                // Export avec Ground Stations (format v4.0)
+                downloadISLGSMininet(
+                    metricsCollector.islMetrics,
+                    metricsCollector.gsMetrics,
+                    constellation,
+                    orbitalPeriod,
+                    getGroundStations()
+                );
+            } else {
+                // Export ISL standard
+                downloadISLMininet(metricsCollector.islMetrics, constellation, orbitalPeriod, exportMode);
+            }
         } else {
             metricsCollector.exportMininet(constellation);
         }

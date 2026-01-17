@@ -774,6 +774,12 @@
             </select>
         </div>
 
+        <!-- Option Ground Stations -->
+        <div class="checkbox-group" id="include-gs-group" style="margin-bottom: 15px;">
+            <input type="checkbox" id="include-ground-stations">
+            <label for="include-ground-stations" style="font-size: 12px;">Inclure les Ground Stations</label>
+        </div>
+
         <div class="metrics-info">
             <p id="metrics-info-text">Collecte sur <span id="orbital-periods-value">1</span> période orbitale avec échantillonnage toutes les <span id="sampling-interval-value">20</span> secondes.</p>
         </div>
@@ -807,6 +813,23 @@
             <div class="stat-row">
                 <span class="stat-label">Latence moyenne:</span>
                 <span class="stat-value" id="isl-avg-latency">0.000</span> ms
+            </div>
+        </div>
+
+        <!-- Statistiques Ground Stations -->
+        <div class="metrics-stats" id="gs-stats-panel" style="display: none;">
+            <h4>Statistiques Ground Stations</h4>
+            <div class="stat-row">
+                <span class="stat-label">Stations:</span>
+                <span class="stat-value" id="gs-count">0</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Événements:</span>
+                <span class="stat-value" id="gs-events-count">0</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Handovers:</span>
+                <span class="stat-value" id="gs-handovers-count">0</span>
             </div>
         </div>
 

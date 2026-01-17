@@ -378,3 +378,118 @@ export function downloadISLSummary(islMetrics, constellation, orbitalPeriod) {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
     downloadFile(summary, `isl_summary_${timestamp}.txt`, 'text/plain');
 }
+
+// ========================================
+// EXPORTERS ISL + GS (avec Ground Stations)
+// ========================================
+
+/**
+ * Exporter les liens ISL + GS au format Mininet - Format JSON v4.0
+ * Un seul fichier modulaire avec sections optionnelles
+ */
+export function exportISLGSTimeSeriesForMininet(islMetrics, gsMetrics, constellation, orbitalPeriod, groundStations = []) {
+    const islSamples = islMetrics.getAllSamples();
+    const gsEvents = gsMetrics.getEvents();
+    const gsTimeline = gsMetrics.getTimeline();
+    const hasGS = groundStations.length > 0;
+
+    const data = {
+        metadata: {
+            exportDate: new Date().toISOString(),
+            format: 'mininet-isl-gs-timeseries',
+            version: '4.0',
+            mode: 'timeseries',
+            hasGroundStations: hasGS,
+            constellation: {
+                totalSatellites: constellation.numSats,
+                planes: constellation.numPlanes,
+                phase: constellation.phase,
+                altitude_km: constellation.altitude,
+                inclination_deg: constellation.inclination
+            },
+            simulation: {
+                orbitalPeriod_min: orbitalPeriod,
+                samplingInterval_s: 20,
+                numPeriods: 1,
+                duration_s: orbitalPeriod * 60
+            }
+        },
+        topology: {
+            satellites: Array.from({length: constellation.numSats}, (_, i) => ({
+                id: i,
+                name: `sat${i}`,
+                type: 'satellite',
+                plane: Math.floor(i * constellation.numPlanes / constellation.numSats)
+            })),
+            groundStations: hasGS ? groundStations.map((gs, i) => ({
+                id: `gs${gs.id}`,
+                name: gs.name,
+                type: 'groundStation',
+                lat: gs.lat,
+                lon: gs.lon
+            })) : []
+        },
+        islLinks: islSamples.map(pair => ({
+            satA: pair.satA,
+            satB: pair.satB,
+            type: pair.type,
+            timeSeries: pair.samples.map(s => ({
+                timestamp: s.timestamp,
+                distance_km: s.distance_km,
+                latency_ms: s.latency_ms
+            })),
+            bandwidth_mbps: 1000
+        })),
+        statistics: islMetrics.getGlobalStats()
+    };
+
+    // Ajouter gsLinks si des ground stations sont présentes
+    if (hasGS) {
+        data.gsLinks = {
+            events: gsEvents.map(e => {
+                const event = {
+                    t: e.t,
+                    gsId: e.gsId,
+                    action: e.action
+                };
+                if (e.action === 'connect') {
+                    event.satId = e.satId;
+                    event.latency_ms = e.latency_ms;
+                } else if (e.action === 'handover') {
+                    event.fromSatId = e.fromSatId;
+                    event.toSatId = e.toSatId;
+                    event.latency_ms = e.latency_ms;
+                } else if (e.action === 'disconnect') {
+                    event.satId = e.satId;
+                }
+                return event;
+            }),
+            timeline: gsTimeline.map(entry => ({
+                gsId: entry.gsId,
+                satId: entry.satId,
+                startTime: entry.startTime,
+                endTime: entry.endTime,
+                samples: entry.samples.map(s => ({
+                    t: s.t,
+                    latency_ms: s.latency_ms
+                }))
+            }))
+        };
+
+        data.gsStatistics = gsMetrics.getGlobalStats();
+    }
+
+    return JSON.stringify(data, null, 2);
+}
+
+/**
+ * Télécharger export ISL+GS Mininet (timeseries avec ground stations)
+ */
+export function downloadISLGSMininet(islMetrics, gsMetrics, constellation, orbitalPeriod, groundStations = []) {
+    const json = exportISLGSTimeSeriesForMininet(islMetrics, gsMetrics, constellation, orbitalPeriod, groundStations);
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+    const filename = groundStations.length > 0
+        ? `mininet_isl_gs_timeseries_${timestamp}.json`
+        : `mininet_isl_timeseries_${timestamp}.json`;
+    downloadFile(json, filename, 'application/json');
+}

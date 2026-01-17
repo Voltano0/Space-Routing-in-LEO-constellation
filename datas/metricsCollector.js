@@ -1,5 +1,6 @@
 import ContactMetrics from './contactMetrics.js';
 import ISLMetrics from './islMetrics.js';
+import GSMetrics from './gsMetrics.js';
 import { exportAllToCSV, downloadJSON, downloadSummary, downloadMininet } from './exporters.js';
 import { DEFAULT_SAMPLING_INTERVAL, DEFAULT_ORBITAL_PERIODS } from '../constants.js';
 
@@ -7,6 +8,7 @@ class MetricsCollector {
     constructor() {
         this.contactMetrics = new ContactMetrics();
         this.islMetrics = new ISLMetrics();
+        this.gsMetrics = new GSMetrics();
 
         // Configuration de la collecte
         this.samplingInterval = DEFAULT_SAMPLING_INTERVAL;
@@ -15,6 +17,14 @@ class MetricsCollector {
 
         // Mode de collecte : 'neighbor' (ancien) ou 'isl' (nouveau)
         this.collectionMode = 'isl';
+
+        // Option pour inclure les ground stations
+        this.includeGroundStations = false;
+
+        // Références aux données GS (passées lors du démarrage)
+        this.groundStationsData = null;
+        this.groundStationMeshes = null;
+        this.getTrackingState = null;
 
         // État de la collecte
         this.isCollecting = false;
@@ -28,7 +38,7 @@ class MetricsCollector {
     }
 
     // Démarrer la collecte
-    startCollection(orbitalPeriod, constellation = null, mode = 'isl') {
+    startCollection(orbitalPeriod, constellation = null, mode = 'isl', gsOptions = null) {
         if (this.isCollecting) {
             console.warn('Collection already in progress');
             return;
@@ -37,6 +47,12 @@ class MetricsCollector {
         // Stocker le mode et la période orbitale
         this.collectionMode = mode;
         this.orbitalPeriod = orbitalPeriod;
+
+        // Configuration des ground stations
+        this.includeGroundStations = gsOptions?.includeGroundStations || false;
+        this.groundStationsData = gsOptions?.groundStations || [];
+        this.groundStationMeshes = gsOptions?.groundStationMeshes || [];
+        this.getTrackingState = gsOptions?.getTrackingState || null;
 
         // Réinitialiser les métriques appropriées
         if (mode === 'isl') {
@@ -49,6 +65,13 @@ class MetricsCollector {
                     constellation.numPlanes,
                     constellation.phase
                 );
+            }
+
+            // Réinitialiser et initialiser GSMetrics si GS incluses
+            if (this.includeGroundStations && this.groundStationsData.length > 0) {
+                this.gsMetrics.reset();
+                this.gsMetrics.initializeGroundStations(this.groundStationsData);
+                console.log(`GSMetrics: Enabled with ${this.groundStationsData.length} ground stations`);
             }
 
             // Pour ISL : collecter sur 1 période orbitale seulement
@@ -69,6 +92,9 @@ class MetricsCollector {
         this.samplesCollected = 0;
 
         console.log(`Starting ${mode} metrics collection for ${this.targetOrbitalPeriods} orbital period(s)`);
+        if (this.includeGroundStations) {
+            console.log(`  -> Including ${this.groundStationsData.length} ground stations`);
+        }
     }
 
     // Arrêter la collecte
@@ -94,6 +120,10 @@ class MetricsCollector {
             // Définir le décalage de temps pour que les contacts/ISL commencent à 0
             if (this.collectionMode === 'isl') {
                 this.islMetrics.setTimeOffset(currentTime);
+                // Définir aussi pour GSMetrics si activé
+                if (this.includeGroundStations) {
+                    this.gsMetrics.setTimeOffset(currentTime);
+                }
             } else {
                 this.contactMetrics.setTimeOffset(currentTime);
             }
@@ -131,6 +161,17 @@ class MetricsCollector {
         if (this.collectionMode === 'isl') {
             // Collecter les échantillons ISL
             this.islMetrics.sampleISLLinks(satellites, currentTime);
+
+            // Collecter les échantillons GS si activé
+            if (this.includeGroundStations && this.getTrackingState) {
+                const trackingState = this.getTrackingState();
+                this.gsMetrics.update(
+                    trackingState,
+                    this.groundStationMeshes,
+                    satellites,
+                    currentTime
+                );
+            }
         } else {
             // Collecter les contacts neighbor links (ancien système)
             this.contactMetrics.update(satellites, currentTime);
@@ -150,6 +191,16 @@ class MetricsCollector {
             console.log(`Average latency (intra-plane): ${islStats.avgLatencyIntraPlane_ms.toFixed(3)}ms`);
             console.log(`Average latency (inter-plane): ${islStats.avgLatencyInterPlane_ms.toFixed(3)}ms`);
             console.log(`Average latency (overall): ${islStats.avgLatencyOverall_ms.toFixed(3)}ms`);
+
+            // Afficher résumé GS si activé
+            if (this.includeGroundStations) {
+                const gsStats = this.gsMetrics.getGlobalStats();
+                console.log('--- Ground Stations ---');
+                console.log(`Total GS: ${gsStats.totalGroundStations}`);
+                console.log(`Total events: ${gsStats.totalEvents} (${gsStats.connectEvents} connect, ${gsStats.handoverEvents} handover, ${gsStats.disconnectEvents} disconnect)`);
+                console.log(`Total GS samples: ${gsStats.totalSamples}`);
+                console.log(`Average GS latency: ${gsStats.avgLatency_ms.toFixed(3)}ms`);
+            }
         } else {
             // Afficher résumé neighbor links dans la console
             const contactStats = this.contactMetrics.getStats();
@@ -205,6 +256,20 @@ class MetricsCollector {
             if (islCountEl) islCountEl.textContent = islStats.totalISLLinks;
             if (islSamplesEl) islSamplesEl.textContent = this.samplesCollected;
             if (islAvgLatencyEl) islAvgLatencyEl.textContent = islStats.avgLatencyOverall_ms.toFixed(3);
+
+            // Mettre à jour les stats GS si activé
+            if (this.includeGroundStations) {
+                const gsStats = this.gsMetrics.getGlobalStats();
+                const gsStatsPanel = document.getElementById('gs-stats-panel');
+                const gsCountEl = document.getElementById('gs-count');
+                const gsEventsEl = document.getElementById('gs-events-count');
+                const gsHandoversEl = document.getElementById('gs-handovers-count');
+
+                if (gsStatsPanel) gsStatsPanel.style.display = 'block';
+                if (gsCountEl) gsCountEl.textContent = gsStats.totalGroundStations;
+                if (gsEventsEl) gsEventsEl.textContent = gsStats.totalEvents;
+                if (gsHandoversEl) gsHandoversEl.textContent = gsStats.handoverEvents;
+            }
         } else {
             const contactStats = this.contactMetrics.getStats();
             const islContactsEl = document.getElementById('isl-contacts-count');
@@ -253,6 +318,16 @@ class MetricsCollector {
     // Getter pour accéder aux métriques
     getContactMetrics() {
         return this.contactMetrics;
+    }
+
+    // Getter pour accéder aux métriques GS
+    getGSMetrics() {
+        return this.gsMetrics;
+    }
+
+    // Vérifier si les GS sont incluses
+    hasGroundStations() {
+        return this.includeGroundStations && this.groundStationsData.length > 0;
     }
 }
 

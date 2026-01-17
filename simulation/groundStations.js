@@ -9,6 +9,9 @@ let groundScopeCones = []; // Cônes de visibilité des stations
 let groundSatelliteLinks = []; // Liens dynamiques ground station → satellites
 let earthRotationAngle = 0; // Angle de rotation actuel de la Terre
 
+// Tracking state: chaque station suit un satellite spécifique
+let stationTrackingState = {}; // { stationId: { trackedSatelliteIndex, lastHandoverTime } }
+
 // Convertir des coordonnées géographiques (lat, lon) en position 3D
 // Prend en compte la rotation de la Terre
 function latLonToCartesian(lat, lon, altitude = 0, rotationOffset = 0) {
@@ -210,24 +213,8 @@ export function updateGroundStations(deltaTime, speedFactor) {
         cone.rotateX(Math.PI / 2);
     });
 
-    // Mettre à jour les cônes de visibilité
-    groundScopeCones.forEach(scopeCone => {
-        const stationId = scopeCone.userData.stationId;
-        const station = groundStations.find(s => s.id === stationId);
-        if (station) {
-            const newPosition = latLonToCartesian(station.lat, station.lon, 0, earthRotationAngle);
-
-            // Calculer la position du cône (décalé de la moitié de sa hauteur)
-            const coneHeight = GROUND_STATION_SCOPE_ALTITUDE * SCALE;
-            const direction = newPosition.clone().normalize();
-            const offset = direction.clone().multiplyScalar(coneHeight / 2);
-
-            scopeCone.position.copy(newPosition).add(offset);
-
-            // Réorienter le cône vers l'extérieur
-            scopeCone.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), direction);
-        }
-    });
+    // NOTE: Les cônes de visibilité sont maintenant mis à jour dans updateGroundSatelliteLinks()
+    // pour suivre le satellite tracké. On ne les oriente plus vers l'extérieur ici.
 }
 
 // Afficher/masquer les cônes de visibilité des stations
@@ -249,28 +236,142 @@ function createGroundSatelliteLink(stationPosition, satellitePosition) {
     return new THREE.Line(geometry, material);
 }
 
+// Calculer l'angle d'élévation entre une station et un satellite
+function calculateElevation(stationPosition, satellitePosition) {
+    const toSatellite = satellitePosition.clone().sub(stationPosition);
+    const stationToCenter = stationPosition.clone().normalize().multiplyScalar(-1);
+
+    // Angle entre la direction vers le satellite et la verticale locale
+    const cosAngle = toSatellite.normalize().dot(stationToCenter);
+    const elevationAngle = Math.acos(cosAngle) * 180 / Math.PI - 90; // Convertir en élévation
+
+    return elevationAngle;
+}
+
+// Trouver le meilleur satellite pour une station (élévation maximale)
+function findBestSatellite(stationPosition, satellites, minElevation = 25) {
+    let bestSatellite = null;
+    let bestElevation = minElevation;
+
+    const stationObj = {
+        position: stationPosition.clone()
+    };
+
+    satellites.forEach((satellite, index) => {
+        if (checkLineOfSight(stationObj, satellite)) {
+            const elevation = calculateElevation(stationPosition, satellite.position);
+
+            if (elevation > bestElevation) {
+                bestElevation = elevation;
+                bestSatellite = index;
+            }
+        }
+    });
+
+    return { satelliteIndex: bestSatellite, elevation: bestElevation };
+}
+
 // Mettre à jour les liens dynamiques entre stations et satellites visibles
-export function updateGroundSatelliteLinks(scene, satellites) {
+// Chaque station suit UN seul satellite (handover automatique)
+export function updateGroundSatelliteLinks(scene, satellites, currentTime = 0) {
     // Supprimer les anciens liens
     clearSceneObjects(scene, groundSatelliteLinks);
 
-    // Créer les nouveaux liens
+    const MIN_ELEVATION = 25; // Élévation minimale en degrés
+    const HANDOVER_HYSTERESIS = 15; // Différence d'élévation pour forcer un handover
+    const MIN_HANDOVER_INTERVAL = 10; // Délai minimum entre handovers (secondes)
+
+    // Créer les nouveaux liens (un seul par station)
     groundStationMeshes.forEach(stationMesh => {
+        const stationId = stationMesh.userData.stationId;
         const stationPosition = stationMesh.children[0].position;
+
+        // Initialiser le tracking state si nécessaire
+        if (!stationTrackingState[stationId]) {
+            stationTrackingState[stationId] = {
+                trackedSatelliteIndex: null,
+                lastHandoverTime: -MIN_HANDOVER_INTERVAL
+            };
+        }
+
+        const trackingState = stationTrackingState[stationId];
+        const trackedIndex = trackingState.trackedSatelliteIndex;
 
         // Créer un objet temporaire avec position pour le raycast
         const stationObj = {
             position: stationPosition.clone()
         };
 
-        satellites.forEach((satellite) => {
-            if (checkLineOfSight(stationObj, satellite)) {
-                const link = createGroundSatelliteLink(stationPosition, satellite.position);
-                scene.add(link);
-                groundSatelliteLinks.push(link);
+        // Vérifier si le satellite actuellement tracké est toujours valide
+        let currentSatValid = false;
+        let currentElevation = 0;
+
+        if (trackedIndex !== null && satellites[trackedIndex]) {
+            if (checkLineOfSight(stationObj, satellites[trackedIndex])) {
+                currentElevation = calculateElevation(stationPosition, satellites[trackedIndex].position);
+                currentSatValid = currentElevation >= MIN_ELEVATION;
             }
-        });
+        }
+
+        // Trouver le meilleur satellite disponible
+        const best = findBestSatellite(stationPosition, satellites, MIN_ELEVATION);
+
+        // Décision de handover
+        let targetSatellite = trackedIndex;
+        const timeSinceLastHandover = currentTime - trackingState.lastHandoverTime;
+
+        if (!currentSatValid || trackedIndex === null) {
+            // Pas de satellite valide actuellement, prendre le meilleur (handover forcé)
+            targetSatellite = best.satelliteIndex;
+            if (best.satelliteIndex !== null && best.satelliteIndex !== trackedIndex) {
+                trackingState.lastHandoverTime = currentTime;
+                console.log(`Station ${stationId}: Handover to sat${best.satelliteIndex} (elev: ${best.elevation.toFixed(1)}°)`);
+            }
+        } else if (best.satelliteIndex !== null && best.satelliteIndex !== trackedIndex) {
+            // Un meilleur satellite est disponible
+            // Vérifier l'hystérésis ET le délai minimum
+            if (best.elevation - currentElevation > HANDOVER_HYSTERESIS &&
+                timeSinceLastHandover >= MIN_HANDOVER_INTERVAL) {
+                targetSatellite = best.satelliteIndex;
+                trackingState.lastHandoverTime = currentTime;
+                console.log(`Station ${stationId}: Handover sat${trackedIndex}→sat${best.satelliteIndex} (${currentElevation.toFixed(1)}°→${best.elevation.toFixed(1)}°)`);
+            }
+        }
+
+        // Mettre à jour le tracking state
+        trackingState.trackedSatelliteIndex = targetSatellite;
+
+        // Créer le lien vers le satellite tracké
+        if (targetSatellite !== null && satellites[targetSatellite]) {
+            const link = createGroundSatelliteLink(stationPosition, satellites[targetSatellite].position);
+            link.userData = {
+                stationId: stationId,
+                satelliteIndex: targetSatellite
+            };
+            scene.add(link);
+            groundSatelliteLinks.push(link);
+
+            // Orienter le cône de visibilité vers le satellite tracké
+            updateScopeOrientation(stationId, stationPosition, satellites[targetSatellite].position);
+        }
     });
+}
+
+// Orienter le cône de visibilité vers un satellite spécifique
+function updateScopeOrientation(stationId, stationPosition, satellitePosition) {
+    const scopeCone = groundScopeCones.find(cone => cone.userData.stationId === stationId);
+    if (!scopeCone) return;
+
+    // Direction vers le satellite
+    const toSatellite = satellitePosition.clone().sub(stationPosition).normalize();
+
+    // Positionner le cône (milieu entre station et satellite)
+    const coneHeight = GROUND_STATION_SCOPE_ALTITUDE * SCALE;
+    const offset = toSatellite.clone().multiplyScalar(coneHeight / 2);
+    scopeCone.position.copy(stationPosition).add(offset);
+
+    // Orienter le cône vers le satellite
+    scopeCone.quaternion.setFromUnitVectors(new THREE.Vector3(0, -1, 0), toSatellite);
 }
 
 // Supprimer tous les liens ground-satellite
@@ -315,17 +416,34 @@ export function updateGroundStationList() {
     }
 
     groundStations.forEach(station => {
+        const trackingState = stationTrackingState[station.id];
+        const trackedSat = trackingState?.trackedSatelliteIndex;
+        const trackingInfo = trackedSat !== null && trackedSat !== undefined
+            ? `<span style="color: #00ff00; font-size: 10px;">📡 Tracking sat${trackedSat}</span>`
+            : '<span style="color: #888; font-size: 10px;">⏸ No satellite</span>';
+
         const item = document.createElement('div');
         item.className = 'station-item';
         item.innerHTML = `
             <div>
                 <strong>${station.name}</strong><br>
-                <span style="color: #888;">${station.lat.toFixed(2)}°, ${station.lon.toFixed(2)}°</span>
+                <span style="color: #888;">${station.lat.toFixed(2)}°, ${station.lon.toFixed(2)}°</span><br>
+                ${trackingInfo}
             </div>
             <button class="delete-btn" onclick="removeGroundStation(${station.id})">×</button>
         `;
         listContainer.appendChild(item);
     });
+}
+
+// Calculer la distance entre une position de station et un satellite
+export function calculateGSToSatelliteDistance(stationPosition, satellitePosition) {
+    // Convertir de l'échelle de visualisation aux km
+    const dx = (stationPosition.x - satellitePosition.x) / SCALE;
+    const dy = (stationPosition.y - satellitePosition.y) / SCALE;
+    const dz = (stationPosition.z - satellitePosition.z) / SCALE;
+
+    return Math.sqrt(dx * dx + dy * dy + dz * dz);
 }
 
 // Getters
@@ -335,4 +453,13 @@ export function getGroundStations() {
 
 export function getGroundStationMeshes() {
     return groundStationMeshes;
+}
+
+export function getStationTrackingState() {
+    return stationTrackingState;
+}
+
+// Réinitialiser l'état de tracking (utilisé lors du démarrage de la collecte)
+export function resetTrackingState() {
+    stationTrackingState = {};
 }

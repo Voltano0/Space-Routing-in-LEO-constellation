@@ -89,4 +89,4 @@ export const LINK_COLORS = {
 export const GROUND_STATION_SCOPE_ALTITUDE = 1000; // km
 
 /** Demi-angle du cône de visibilité des stations au sol en degrés */
-export const GROUND_STATION_CONE_ANGLE = 70; // degrés
+export const GROUND_STATION_CONE_ANGLE = 55; // degrés
