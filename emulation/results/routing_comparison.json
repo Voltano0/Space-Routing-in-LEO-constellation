@@ -1,0 +1,984 @@
+{
+  "timestamp": "2026-01-19T08:10:53.499740",
+  "summary": {
+    "total_pairs": 36,
+    "gs_bounce_beneficial_count": 13,
+    "gs_bounce_beneficial_percent": 36.11111111111111,
+    "avg_improvement_when_beneficial_ms": 19.94502163682387,
+    "max_improvement_ms": 60.287663342515565
+  },
+  "results": [
+    {
+      "source": "gs1",
+      "destination": "gs2",
+      "timestamp": "2026-01-19T08:10:53.001686",
+      "isl_only": {
+        "avg_latency_ms": 11.04168206416449,
+        "min_latency_ms": 11.04168206416449,
+        "max_latency_ms": 11.04168206416449,
+        "p95_latency_ms": 11.04168206416449,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 2
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 11.04168206416449,
+        "min_latency_ms": 11.04168206416449,
+        "max_latency_ms": 11.04168206416449,
+        "p95_latency_ms": 11.04168206416449,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 2
+      },
+      "comparison": {
+        "latency_improvement_ms": 0.0,
+        "latency_improvement_percent": 0.0,
+        "hop_reduction": 0,
+        "gs_bounce_beneficial": false
+      }
+    },
+    {
+      "source": "gs1",
+      "destination": "gs3",
+      "timestamp": "2026-01-19T08:10:53.018298",
+      "isl_only": {
+        "avg_latency_ms": 30.63325081909625,
+        "min_latency_ms": 30.63325081909625,
+        "max_latency_ms": 30.63325081909625,
+        "p95_latency_ms": 30.63325081909625,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 3
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 30.63325081909625,
+        "min_latency_ms": 30.63325081909625,
+        "max_latency_ms": 30.63325081909625,
+        "p95_latency_ms": 30.63325081909625,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 3
+      },
+      "comparison": {
+        "latency_improvement_ms": 0.0,
+        "latency_improvement_percent": 0.0,
+        "hop_reduction": 0,
+        "gs_bounce_beneficial": false
+      }
+    },
+    {
+      "source": "gs1",
+      "destination": "gs4",
+      "timestamp": "2026-01-19T08:10:53.027570",
+      "isl_only": {
+        "avg_latency_ms": 10.490025380835645,
+        "min_latency_ms": 10.490025380835645,
+        "max_latency_ms": 10.490025380835645,
+        "p95_latency_ms": 10.490025380835645,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 2
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 10.490025380835645,
+        "min_latency_ms": 10.490025380835645,
+        "max_latency_ms": 10.490025380835645,
+        "p95_latency_ms": 10.490025380835645,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 2
+      },
+      "comparison": {
+        "latency_improvement_ms": 0.0,
+        "latency_improvement_percent": 0.0,
+        "hop_reduction": 0,
+        "gs_bounce_beneficial": false
+      }
+    },
+    {
+      "source": "gs1",
+      "destination": "gs5",
+      "timestamp": "2026-01-19T08:10:53.040386",
+      "isl_only": {
+        "avg_latency_ms": 0.0,
+        "min_latency_ms": 0.0,
+        "max_latency_ms": 0.0,
+        "p95_latency_ms": 0.0,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 0.0
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 0.0,
+        "min_latency_ms": 0.0,
+        "max_latency_ms": 0.0,
+        "p95_latency_ms": 0.0,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 0.0
+      },
+      "comparison": {
+        "latency_improvement_ms": 0.0,
+        "latency_improvement_percent": 0.0,
+        "hop_reduction": 0.0,
+        "gs_bounce_beneficial": false
+      }
+    },
+    {
+      "source": "gs1",
+      "destination": "gs6",
+      "timestamp": "2026-01-19T08:10:53.040527",
+      "isl_only": {
+        "avg_latency_ms": 27.586768682359775,
+        "min_latency_ms": 27.586768682359775,
+        "max_latency_ms": 27.586768682359775,
+        "p95_latency_ms": 27.586768682359775,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 3
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 21.847930128657033,
+        "min_latency_ms": 21.847930128657033,
+        "max_latency_ms": 21.847930128657033,
+        "p95_latency_ms": 21.847930128657033,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 4
+      },
+      "comparison": {
+        "latency_improvement_ms": 5.738838553702742,
+        "latency_improvement_percent": 20.802866112305548,
+        "hop_reduction": -1,
+        "gs_bounce_beneficial": true
+      }
+    },
+    {
+      "source": "gs1",
+      "destination": "gs7",
+      "timestamp": "2026-01-19T08:10:53.071707",
+      "isl_only": {
+        "avg_latency_ms": 28.827915868492354,
+        "min_latency_ms": 28.827915868492354,
+        "max_latency_ms": 28.827915868492354,
+        "p95_latency_ms": 28.827915868492354,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 3
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 21.551126386606228,
+        "min_latency_ms": 21.551126386606228,
+        "max_latency_ms": 21.551126386606228,
+        "p95_latency_ms": 21.551126386606228,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 4
+      },
+      "comparison": {
+        "latency_improvement_ms": 7.2767894818861265,
+        "latency_improvement_percent": 25.242162891974225,
+        "hop_reduction": -1,
+        "gs_bounce_beneficial": true
+      }
+    },
+    {
+      "source": "gs1",
+      "destination": "gs8",
+      "timestamp": "2026-01-19T08:10:53.076976",
+      "isl_only": {
+        "avg_latency_ms": 56.44749607839109,
+        "min_latency_ms": 56.44749607839109,
+        "max_latency_ms": 56.44749607839109,
+        "p95_latency_ms": 56.44749607839109,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 4
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 20.2035260345556,
+        "min_latency_ms": 20.2035260345556,
+        "max_latency_ms": 20.2035260345556,
+        "p95_latency_ms": 20.2035260345556,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 4
+      },
+      "comparison": {
+        "latency_improvement_ms": 36.24397004383549,
+        "latency_improvement_percent": 64.20828657041211,
+        "hop_reduction": 0,
+        "gs_bounce_beneficial": true
+      }
+    },
+    {
+      "source": "gs1",
+      "destination": "gs9",
+      "timestamp": "2026-01-19T08:10:53.095822",
+      "isl_only": {
+        "avg_latency_ms": 9.245644910077086,
+        "min_latency_ms": 9.245644910077086,
+        "max_latency_ms": 9.245644910077086,
+        "p95_latency_ms": 9.245644910077086,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 2
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 9.245644910077086,
+        "min_latency_ms": 9.245644910077086,
+        "max_latency_ms": 9.245644910077086,
+        "p95_latency_ms": 9.245644910077086,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 2
+      },
+      "comparison": {
+        "latency_improvement_ms": 0.0,
+        "latency_improvement_percent": 0.0,
+        "hop_reduction": 0,
+        "gs_bounce_beneficial": false
+      }
+    },
+    {
+      "source": "gs2",
+      "destination": "gs3",
+      "timestamp": "2026-01-19T08:10:53.116873",
+      "isl_only": {
+        "avg_latency_ms": 52.88931515218212,
+        "min_latency_ms": 52.88931515218212,
+        "max_latency_ms": 52.88931515218212,
+        "p95_latency_ms": 52.88931515218212,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 4
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 31.34495078211247,
+        "min_latency_ms": 31.34495078211247,
+        "max_latency_ms": 31.34495078211247,
+        "p95_latency_ms": 31.34495078211247,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 6
+      },
+      "comparison": {
+        "latency_improvement_ms": 21.54436437006965,
+        "latency_improvement_percent": 40.734814410204685,
+        "hop_reduction": -2,
+        "gs_bounce_beneficial": true
+      }
+    },
+    {
+      "source": "gs2",
+      "destination": "gs4",
+      "timestamp": "2026-01-19T08:10:53.126504",
+      "isl_only": {
+        "avg_latency_ms": 31.687436028036842,
+        "min_latency_ms": 31.687436028036842,
+        "max_latency_ms": 31.687436028036842,
+        "p95_latency_ms": 31.687436028036842,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 3
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 21.531707445000134,
+        "min_latency_ms": 21.531707445000134,
+        "max_latency_ms": 21.531707445000134,
+        "p95_latency_ms": 21.531707445000134,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 4
+      },
+      "comparison": {
+        "latency_improvement_ms": 10.155728583036709,
+        "latency_improvement_percent": 32.049701257151206,
+        "hop_reduction": -1,
+        "gs_bounce_beneficial": true
+      }
+    },
+    {
+      "source": "gs2",
+      "destination": "gs5",
+      "timestamp": "2026-01-19T08:10:53.139871",
+      "isl_only": {
+        "avg_latency_ms": 0.0,
+        "min_latency_ms": 0.0,
+        "max_latency_ms": 0.0,
+        "p95_latency_ms": 0.0,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 0.0
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 0.0,
+        "min_latency_ms": 0.0,
+        "max_latency_ms": 0.0,
+        "p95_latency_ms": 0.0,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 0.0
+      },
+      "comparison": {
+        "latency_improvement_ms": 0.0,
+        "latency_improvement_percent": 0.0,
+        "hop_reduction": 0.0,
+        "gs_bounce_beneficial": false
+      }
+    },
+    {
+      "source": "gs2",
+      "destination": "gs6",
+      "timestamp": "2026-01-19T08:10:53.140064",
+      "isl_only": {
+        "avg_latency_ms": 49.84283301544564,
+        "min_latency_ms": 49.84283301544564,
+        "max_latency_ms": 49.84283301544564,
+        "p95_latency_ms": 49.84283301544564,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 4
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 20.573992225661428,
+        "min_latency_ms": 20.573992225661428,
+        "max_latency_ms": 20.573992225661428,
+        "p95_latency_ms": 20.573992225661428,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 4
+      },
+      "comparison": {
+        "latency_improvement_ms": 29.268840789784214,
+        "latency_improvement_percent": 58.722265607804005,
+        "hop_reduction": 0,
+        "gs_bounce_beneficial": true
+      }
+    },
+    {
+      "source": "gs2",
+      "destination": "gs7",
+      "timestamp": "2026-01-19T08:10:53.172623",
+      "isl_only": {
+        "avg_latency_ms": 10.509444322441738,
+        "min_latency_ms": 10.509444322441738,
+        "max_latency_ms": 10.509444322441738,
+        "p95_latency_ms": 10.509444322441738,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 2
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 10.509444322441738,
+        "min_latency_ms": 10.509444322441738,
+        "max_latency_ms": 10.509444322441738,
+        "p95_latency_ms": 10.509444322441738,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 2
+      },
+      "comparison": {
+        "latency_improvement_ms": 0.0,
+        "latency_improvement_percent": 0.0,
+        "hop_reduction": 0,
+        "gs_bounce_beneficial": false
+      }
+    },
+    {
+      "source": "gs2",
+      "destination": "gs8",
+      "timestamp": "2026-01-19T08:10:53.177759",
+      "isl_only": {
+        "avg_latency_ms": 29.03308774226909,
+        "min_latency_ms": 29.03308774226909,
+        "max_latency_ms": 29.03308774226909,
+        "p95_latency_ms": 29.03308774226909,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 3
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 29.03308774226909,
+        "min_latency_ms": 29.03308774226909,
+        "max_latency_ms": 29.03308774226909,
+        "p95_latency_ms": 29.03308774226909,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 3
+      },
+      "comparison": {
+        "latency_improvement_ms": 0.0,
+        "latency_improvement_percent": 0.0,
+        "hop_reduction": 0,
+        "gs_bounce_beneficial": false
+      }
+    },
+    {
+      "source": "gs2",
+      "destination": "gs9",
+      "timestamp": "2026-01-19T08:10:53.194962",
+      "isl_only": {
+        "avg_latency_ms": 11.822643773158008,
+        "min_latency_ms": 11.822643773158008,
+        "max_latency_ms": 11.822643773158008,
+        "p95_latency_ms": 11.822643773158008,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 2
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 11.822643773158008,
+        "min_latency_ms": 11.822643773158008,
+        "max_latency_ms": 11.822643773158008,
+        "p95_latency_ms": 11.822643773158008,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 2
+      },
+      "comparison": {
+        "latency_improvement_ms": 0.0,
+        "latency_improvement_percent": 0.0,
+        "hop_reduction": 0,
+        "gs_bounce_beneficial": false
+      }
+    },
+    {
+      "source": "gs3",
+      "destination": "gs4",
+      "timestamp": "2026-01-19T08:10:53.217240",
+      "isl_only": {
+        "avg_latency_ms": 29.707680026681935,
+        "min_latency_ms": 29.707680026681935,
+        "max_latency_ms": 29.707680026681935,
+        "p95_latency_ms": 29.707680026681935,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 3
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 29.707680026681935,
+        "min_latency_ms": 29.707680026681935,
+        "max_latency_ms": 29.707680026681935,
+        "p95_latency_ms": 29.707680026681935,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 3
+      },
+      "comparison": {
+        "latency_improvement_ms": 0.0,
+        "latency_improvement_percent": 0.0,
+        "hop_reduction": 0,
+        "gs_bounce_beneficial": false
+      }
+    },
+    {
+      "source": "gs3",
+      "destination": "gs5",
+      "timestamp": "2026-01-19T08:10:53.226749",
+      "isl_only": {
+        "avg_latency_ms": 0.0,
+        "min_latency_ms": 0.0,
+        "max_latency_ms": 0.0,
+        "p95_latency_ms": 0.0,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 0.0
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 0.0,
+        "min_latency_ms": 0.0,
+        "max_latency_ms": 0.0,
+        "p95_latency_ms": 0.0,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 0.0
+      },
+      "comparison": {
+        "latency_improvement_ms": 0.0,
+        "latency_improvement_percent": 0.0,
+        "hop_reduction": 0.0,
+        "gs_bounce_beneficial": false
+      }
+    },
+    {
+      "source": "gs3",
+      "destination": "gs6",
+      "timestamp": "2026-01-19T08:10:53.226953",
+      "isl_only": {
+        "avg_latency_ms": 10.770958556451042,
+        "min_latency_ms": 10.770958556451042,
+        "max_latency_ms": 10.770958556451042,
+        "p95_latency_ms": 10.770958556451042,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 2
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 10.770958556451042,
+        "min_latency_ms": 10.770958556451042,
+        "max_latency_ms": 10.770958556451042,
+        "p95_latency_ms": 10.770958556451042,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 2
+      },
+      "comparison": {
+        "latency_improvement_ms": 0.0,
+        "latency_improvement_percent": 0.0,
+        "hop_reduction": 0,
+        "gs_bounce_beneficial": false
+      }
+    },
+    {
+      "source": "gs3",
+      "destination": "gs7",
+      "timestamp": "2026-01-19T08:10:53.243738",
+      "isl_only": {
+        "avg_latency_ms": 81.1231698021863,
+        "min_latency_ms": 81.1231698021863,
+        "max_latency_ms": 81.1231698021863,
+        "p95_latency_ms": 81.1231698021863,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 4
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 20.835506459670732,
+        "min_latency_ms": 20.835506459670732,
+        "max_latency_ms": 20.835506459670732,
+        "p95_latency_ms": 20.835506459670732,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 4
+      },
+      "comparison": {
+        "latency_improvement_ms": 60.287663342515565,
+        "latency_improvement_percent": 74.3162076747287,
+        "hop_reduction": 0,
+        "gs_bounce_beneficial": true
+      }
+    },
+    {
+      "source": "gs3",
+      "destination": "gs8",
+      "timestamp": "2026-01-19T08:10:53.246987",
+      "isl_only": {
+        "avg_latency_ms": 52.24192808949099,
+        "min_latency_ms": 52.24192808949099,
+        "max_latency_ms": 52.24192808949099,
+        "p95_latency_ms": 52.24192808949099,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 4
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 39.104762661835046,
+        "min_latency_ms": 39.104762661835046,
+        "max_latency_ms": 39.104762661835046,
+        "p95_latency_ms": 39.104762661835046,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 5
+      },
+      "comparison": {
+        "latency_improvement_ms": 13.137165427655944,
+        "latency_improvement_percent": 25.146785174451903,
+        "hop_reduction": -1,
+        "gs_bounce_beneficial": true
+      }
+    },
+    {
+      "source": "gs3",
+      "destination": "gs9",
+      "timestamp": "2026-01-19T08:10:53.258357",
+      "isl_only": {
+        "avg_latency_ms": 30.90204659761698,
+        "min_latency_ms": 30.90204659761698,
+        "max_latency_ms": 30.90204659761698,
+        "p95_latency_ms": 30.90204659761698,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 3
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 23.373243775030986,
+        "min_latency_ms": 23.373243775030986,
+        "max_latency_ms": 23.373243775030986,
+        "p95_latency_ms": 23.373243775030986,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 4
+      },
+      "comparison": {
+        "latency_improvement_ms": 7.528802822585995,
+        "latency_improvement_percent": 24.3634440159267,
+        "hop_reduction": -1,
+        "gs_bounce_beneficial": true
+      }
+    },
+    {
+      "source": "gs4",
+      "destination": "gs5",
+      "timestamp": "2026-01-19T08:10:53.271285",
+      "isl_only": {
+        "avg_latency_ms": 0.0,
+        "min_latency_ms": 0.0,
+        "max_latency_ms": 0.0,
+        "p95_latency_ms": 0.0,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 0.0
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 0.0,
+        "min_latency_ms": 0.0,
+        "max_latency_ms": 0.0,
+        "p95_latency_ms": 0.0,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 0.0
+      },
+      "comparison": {
+        "latency_improvement_ms": 0.0,
+        "latency_improvement_percent": 0.0,
+        "hop_reduction": 0.0,
+        "gs_bounce_beneficial": false
+      }
+    },
+    {
+      "source": "gs4",
+      "destination": "gs6",
+      "timestamp": "2026-01-19T08:10:53.271509",
+      "isl_only": {
+        "avg_latency_ms": 26.661197889945456,
+        "min_latency_ms": 26.661197889945456,
+        "max_latency_ms": 26.661197889945456,
+        "p95_latency_ms": 26.661197889945456,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 3
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 26.661197889945456,
+        "min_latency_ms": 26.661197889945456,
+        "max_latency_ms": 26.661197889945456,
+        "p95_latency_ms": 26.661197889945456,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 3
+      },
+      "comparison": {
+        "latency_improvement_ms": 0.0,
+        "latency_improvement_percent": 0.0,
+        "hop_reduction": 0,
+        "gs_bounce_beneficial": false
+      }
+    },
+    {
+      "source": "gs4",
+      "destination": "gs7",
+      "timestamp": "2026-01-19T08:10:53.302279",
+      "isl_only": {
+        "avg_latency_ms": 26.400321514591596,
+        "min_latency_ms": 26.400321514591596,
+        "max_latency_ms": 26.400321514591596,
+        "p95_latency_ms": 26.400321514591596,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 3
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 26.400321514591596,
+        "min_latency_ms": 26.400321514591596,
+        "max_latency_ms": 26.400321514591596,
+        "p95_latency_ms": 26.400321514591596,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 3
+      },
+      "comparison": {
+        "latency_improvement_ms": 0.0,
+        "latency_improvement_percent": 0.0,
+        "hop_reduction": 0,
+        "gs_bounce_beneficial": false
+      }
+    },
+    {
+      "source": "gs4",
+      "destination": "gs8",
+      "timestamp": "2026-01-19T08:10:53.307672",
+      "isl_only": {
+        "avg_latency_ms": 9.713500653719958,
+        "min_latency_ms": 9.713500653719958,
+        "max_latency_ms": 9.713500653719958,
+        "p95_latency_ms": 9.713500653719958,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 2
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 9.713500653719958,
+        "min_latency_ms": 9.713500653719958,
+        "max_latency_ms": 9.713500653719958,
+        "p95_latency_ms": 9.713500653719958,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 2
+      },
+      "comparison": {
+        "latency_improvement_ms": 0.0,
+        "latency_improvement_percent": 0.0,
+        "hop_reduction": 0,
+        "gs_bounce_beneficial": false
+      }
+    },
+    {
+      "source": "gs4",
+      "destination": "gs9",
+      "timestamp": "2026-01-19T08:10:53.325208",
+      "isl_only": {
+        "avg_latency_ms": 29.763929531210096,
+        "min_latency_ms": 29.763929531210096,
+        "max_latency_ms": 29.763929531210096,
+        "p95_latency_ms": 29.763929531210096,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 3
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 19.73567029091273,
+        "min_latency_ms": 19.73567029091273,
+        "max_latency_ms": 19.73567029091273,
+        "p95_latency_ms": 19.73567029091273,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 4
+      },
+      "comparison": {
+        "latency_improvement_ms": 10.028259240297366,
+        "latency_improvement_percent": 33.69265886005359,
+        "hop_reduction": -1,
+        "gs_bounce_beneficial": true
+      }
+    },
+    {
+      "source": "gs5",
+      "destination": "gs6",
+      "timestamp": "2026-01-19T08:10:53.346408",
+      "isl_only": {
+        "avg_latency_ms": 0.0,
+        "min_latency_ms": 0.0,
+        "max_latency_ms": 0.0,
+        "p95_latency_ms": 0.0,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 0.0
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 0.0,
+        "min_latency_ms": 0.0,
+        "max_latency_ms": 0.0,
+        "p95_latency_ms": 0.0,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 0.0
+      },
+      "comparison": {
+        "latency_improvement_ms": 0.0,
+        "latency_improvement_percent": 0.0,
+        "hop_reduction": 0.0,
+        "gs_bounce_beneficial": false
+      }
+    },
+    {
+      "source": "gs5",
+      "destination": "gs7",
+      "timestamp": "2026-01-19T08:10:53.346445",
+      "isl_only": {
+        "avg_latency_ms": 0.0,
+        "min_latency_ms": 0.0,
+        "max_latency_ms": 0.0,
+        "p95_latency_ms": 0.0,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 0.0
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 0.0,
+        "min_latency_ms": 0.0,
+        "max_latency_ms": 0.0,
+        "p95_latency_ms": 0.0,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 0.0
+      },
+      "comparison": {
+        "latency_improvement_ms": 0.0,
+        "latency_improvement_percent": 0.0,
+        "hop_reduction": 0.0,
+        "gs_bounce_beneficial": false
+      }
+    },
+    {
+      "source": "gs5",
+      "destination": "gs8",
+      "timestamp": "2026-01-19T08:10:53.346476",
+      "isl_only": {
+        "avg_latency_ms": 0.0,
+        "min_latency_ms": 0.0,
+        "max_latency_ms": 0.0,
+        "p95_latency_ms": 0.0,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 0.0
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 0.0,
+        "min_latency_ms": 0.0,
+        "max_latency_ms": 0.0,
+        "p95_latency_ms": 0.0,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 0.0
+      },
+      "comparison": {
+        "latency_improvement_ms": 0.0,
+        "latency_improvement_percent": 0.0,
+        "hop_reduction": 0.0,
+        "gs_bounce_beneficial": false
+      }
+    },
+    {
+      "source": "gs5",
+      "destination": "gs9",
+      "timestamp": "2026-01-19T08:10:53.346510",
+      "isl_only": {
+        "avg_latency_ms": 0.0,
+        "min_latency_ms": 0.0,
+        "max_latency_ms": 0.0,
+        "p95_latency_ms": 0.0,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 0.0
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 0.0,
+        "min_latency_ms": 0.0,
+        "max_latency_ms": 0.0,
+        "p95_latency_ms": 0.0,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 0.0
+      },
+      "comparison": {
+        "latency_improvement_ms": 0.0,
+        "latency_improvement_percent": 0.0,
+        "hop_reduction": 0.0,
+        "gs_bounce_beneficial": false
+      }
+    },
+    {
+      "source": "gs6",
+      "destination": "gs7",
+      "timestamp": "2026-01-19T08:10:53.346568",
+      "isl_only": {
+        "avg_latency_ms": 10.064547903219692,
+        "min_latency_ms": 10.064547903219692,
+        "max_latency_ms": 10.064547903219692,
+        "p95_latency_ms": 10.064547903219692,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 2
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 10.064547903219692,
+        "min_latency_ms": 10.064547903219692,
+        "max_latency_ms": 10.064547903219692,
+        "p95_latency_ms": 10.064547903219692,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 2
+      },
+      "comparison": {
+        "latency_improvement_ms": 0.0,
+        "latency_improvement_percent": 0.0,
+        "hop_reduction": 0,
+        "gs_bounce_beneficial": false
+      }
+    },
+    {
+      "source": "gs6",
+      "destination": "gs8",
+      "timestamp": "2026-01-19T08:10:53.358884",
+      "isl_only": {
+        "avg_latency_ms": 28.33380410538401,
+        "min_latency_ms": 28.33380410538401,
+        "max_latency_ms": 28.33380410538401,
+        "p95_latency_ms": 28.33380410538401,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 3
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 28.33380410538401,
+        "min_latency_ms": 28.33380410538401,
+        "max_latency_ms": 28.33380410538401,
+        "p95_latency_ms": 28.33380410538401,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 3
+      },
+      "comparison": {
+        "latency_improvement_ms": 0.0,
+        "latency_improvement_percent": 0.0,
+        "hop_reduction": 0,
+        "gs_bounce_beneficial": false
+      }
+    },
+    {
+      "source": "gs6",
+      "destination": "gs9",
+      "timestamp": "2026-01-19T08:10:53.400229",
+      "isl_only": {
+        "avg_latency_ms": 12.602285218579945,
+        "min_latency_ms": 12.602285218579945,
+        "max_latency_ms": 12.602285218579945,
+        "p95_latency_ms": 12.602285218579945,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 2
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 12.602285218579945,
+        "min_latency_ms": 12.602285218579945,
+        "max_latency_ms": 12.602285218579945,
+        "p95_latency_ms": 12.602285218579945,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 2
+      },
+      "comparison": {
+        "latency_improvement_ms": 0.0,
+        "latency_improvement_percent": 0.0,
+        "hop_reduction": 0,
+        "gs_bounce_beneficial": false
+      }
+    },
+    {
+      "source": "gs7",
+      "destination": "gs8",
+      "timestamp": "2026-01-19T08:10:53.453469",
+      "isl_only": {
+        "avg_latency_ms": 58.62571793827751,
+        "min_latency_ms": 58.62571793827751,
+        "max_latency_ms": 58.62571793827751,
+        "p95_latency_ms": 58.62571793827751,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 4
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 36.11382216831155,
+        "min_latency_ms": 36.11382216831155,
+        "max_latency_ms": 36.11382216831155,
+        "p95_latency_ms": 36.11382216831155,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 5
+      },
+      "comparison": {
+        "latency_improvement_ms": 22.51189576996596,
+        "latency_improvement_percent": 38.39935195960755,
+        "hop_reduction": -1,
+        "gs_bounce_beneficial": true
+      }
+    },
+    {
+      "source": "gs7",
+      "destination": "gs9",
+      "timestamp": "2026-01-19T08:10:53.461218",
+      "isl_only": {
+        "avg_latency_ms": 50.540899973080194,
+        "min_latency_ms": 50.540899973080194,
+        "max_latency_ms": 50.540899973080194,
+        "p95_latency_ms": 50.540899973080194,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 4
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 22.332088095599747,
+        "min_latency_ms": 22.332088095599747,
+        "max_latency_ms": 22.332088095599747,
+        "p95_latency_ms": 22.332088095599747,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 4
+      },
+      "comparison": {
+        "latency_improvement_ms": 28.208811877480446,
+        "latency_improvement_percent": 55.8138297745102,
+        "hop_reduction": 0,
+        "gs_bounce_beneficial": true
+      }
+    },
+    {
+      "source": "gs8",
+      "destination": "gs9",
+      "timestamp": "2026-01-19T08:10:53.469722",
+      "isl_only": {
+        "avg_latency_ms": 36.803321920526805,
+        "min_latency_ms": 36.803321920526805,
+        "max_latency_ms": 36.803321920526805,
+        "p95_latency_ms": 36.803321920526805,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 3
+      },
+      "gs_bounce": {
+        "avg_latency_ms": 29.449170944632687,
+        "min_latency_ms": 29.449170944632687,
+        "max_latency_ms": 29.449170944632687,
+        "p95_latency_ms": 29.449170944632687,
+        "jitter_ms": 0.0,
+        "avg_hop_count": 6
+      },
+      "comparison": {
+        "latency_improvement_ms": 7.354150975894118,
+        "latency_improvement_percent": 19.9823021187454,
+        "hop_reduction": -3,
+        "gs_bounce_beneficial": true
+      }
+    }
+  ]
+}

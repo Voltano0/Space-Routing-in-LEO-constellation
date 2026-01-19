@@ -7,8 +7,8 @@ import { updateSatelliteGrid, highlightSatellite } from './grid.js';
 import { addGroundStation, removeGroundStation, updateGroundStationList, updateGroundStations, toggleGroundScope, updateGroundSatelliteLinks, clearGroundSatelliteLinks, getGroundStations, getGroundStationMeshes, getStationTrackingState } from './groundStations.js';
 import { showSatelliteInfo, closeSatelliteInfo, updateSelectedSatelliteInfo, getSelectedSatelliteIndex } from './ui.js';
 import { handleStationsFileImport, handleConstellationFileImport } from './import.js';
-import MetricsCollector from '../datas/metricsCollector.js';
-import { downloadISLMininet, downloadISLJSON, downloadISLCSV, downloadISLSummary, downloadISLGSMininet } from '../datas/exporters.js';
+import MetricsCollector from '../Metrics/metricsCollector.js';
+import { downloadISLMininet, downloadISLJSON, downloadISLCSV, downloadISLSummary, downloadISLGSMininet } from '../Metrics/exporters.js';
 
 // Variables globales
 let scene, camera, renderer, controls;

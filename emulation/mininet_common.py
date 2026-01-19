@@ -128,56 +128,73 @@ def display_constellation_info(data):
         info("\n")
 
 
-def update_link_latency_tc(interface, latency_ms):
+def update_link_latency_tc(interface, latency_ms, host=None):
     """
     Met à jour la latence d'une interface réseau avec tc netem
 
     Args:
         interface: Nom de l'interface (ex: 'sat0-eth0')
         latency_ms: Latence en millisecondes
+        host: Host Mininet (si fourni, exécute via le namespace du host)
 
     Returns:
         bool: True si la mise à jour a réussi, False sinon
     """
     try:
-        # Vérifier si une qdisc existe déjà
-        result = subprocess.run(
-            ['tc', 'qdisc', 'show', 'dev', interface],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
+        if host:
+            # Exécuter via le namespace du host Mininet
+            # Vérifier si une qdisc netem existe
+            result = host.cmd(f'tc qdisc show dev {interface}')
 
-        if 'netem' in result.stdout:
-            # Modifier la qdisc existante
-            cmd = ['tc', 'qdisc', 'change', 'dev', interface,
-                   'root', 'netem', 'delay', f'{latency_ms:.3f}ms']
+            if 'netem' in result:
+                cmd = f'tc qdisc change dev {interface} root netem delay {latency_ms:.3f}ms'
+            else:
+                # Supprimer l'existante et créer une nouvelle
+                host.cmd(f'tc qdisc del dev {interface} root 2>/dev/null')
+                cmd = f'tc qdisc add dev {interface} root netem delay {latency_ms:.3f}ms'
+
+            result = host.cmd(cmd)
+            if 'Error' in result or 'error' in result:
+                # Silently ignore - interface may have been removed
+                return False
+            return True
+
         else:
-            # Créer une nouvelle qdisc
-            # D'abord supprimer l'existante (ignorer les erreurs)
-            subprocess.run(
-                ['tc', 'qdisc', 'del', 'dev', interface, 'root'],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
+            # Fallback: exécuter directement (ancien comportement)
+            result = subprocess.run(
+                ['tc', 'qdisc', 'show', 'dev', interface],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
             )
-            cmd = ['tc', 'qdisc', 'add', 'dev', interface,
-                   'root', 'netem', 'delay', f'{latency_ms:.3f}ms']
 
-        result = subprocess.run(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
+            if 'netem' in result.stdout:
+                cmd = ['tc', 'qdisc', 'change', 'dev', interface,
+                       'root', 'netem', 'delay', f'{latency_ms:.3f}ms']
+            else:
+                subprocess.run(
+                    ['tc', 'qdisc', 'del', 'dev', interface, 'root'],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+                cmd = ['tc', 'qdisc', 'add', 'dev', interface,
+                       'root', 'netem', 'delay', f'{latency_ms:.3f}ms']
 
-        if result.returncode != 0:
-            warn(f"tc command failed for {interface}: {result.stderr}\n")
-            return False
+            result = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
 
-        return True
+            if result.returncode != 0:
+                # Silently ignore - don't spam logs
+                return False
+
+            return True
 
     except Exception as e:
-        error(f"Error updating latency for {interface}: {e}\n")
+        # Silently ignore errors
         return False
 
 

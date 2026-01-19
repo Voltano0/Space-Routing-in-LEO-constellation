@@ -20,13 +20,13 @@ Format JSON v4.0:
 """
 
 import json
+import os
 import sys
 import threading
 import time
 from mininet.net import Mininet
 from mininet.link import TCLink
 from mininet.log import setLogLevel, info, warn, error
-from mininet.cli import CLI
 
 from mininet_common import (
     load_json_data,
@@ -41,6 +41,7 @@ from mininet_common import (
     find_interface_for_link,
     LinkLatencyCache
 )
+from isis_routing import setup_isis_network, stop_isis_network, setup_simple_routing
 
 
 class DynamicGSLinkManager:
@@ -86,6 +87,11 @@ class DynamicGSLinkManager:
         ip_sat = f'{subnet_base}.{subnet_second}.{subnet_third}.2/30'
 
         try:
+            # Suppress kernel warnings during link creation
+            devnull = open(os.devnull, 'w')
+            old_stderr = os.dup(2)
+            os.dup2(devnull.fileno(), 2)
+
             # Créer le lien avec latence initiale
             link = self.net.addLink(
                 gs_host,
@@ -96,6 +102,11 @@ class DynamicGSLinkManager:
                 bw=100,  # 100 Mbps pour les liens GS
                 max_queue_size=500
             )
+
+            # Restore stderr
+            os.dup2(old_stderr, 2)
+            os.close(old_stderr)
+            devnull.close()
 
             # Récupérer les noms des interfaces
             intf_gs = link.intf1.name
@@ -139,7 +150,7 @@ class DynamicGSLinkManager:
         try:
             # Supprimer le lien
             link = link_info['link']
-            self.net.removeLink(link)
+            self.net.delLink(link)
 
             del self.active_links[gs_id]
 
@@ -183,9 +194,13 @@ class DynamicGSLinkManager:
         intf_gs = link_info['intf_gs']
         intf_sat = link_info['intf_sat']
 
+        # Récupérer les hosts pour exécuter dans le bon namespace
+        gs_host = self.gs_hosts.get(gs_id)
+        sat_host = self.sat_hosts.get(link_info['sat_id'])
+
         # Mettre à jour les deux directions
-        success_gs = update_link_latency_tc(intf_gs, latency_ms)
-        success_sat = update_link_latency_tc(intf_sat, latency_ms)
+        success_gs = update_link_latency_tc(intf_gs, latency_ms, host=gs_host)
+        success_sat = update_link_latency_tc(intf_sat, latency_ms, host=sat_host)
 
         return success_gs and success_sat
 
@@ -211,18 +226,19 @@ class DynamicLatencyUpdater:
         self.thread = None
         self.latency_cache = LinkLatencyCache()
 
-        # Indexer les time series ISL
+        # Indexer les time series ISL (seulement ceux avec timeseries)
         self.isl_timeseries_map = {}
         self.orbital_period_s = 0
 
         for link in isl_links:
-            key = (link['satA'], link['satB'])
-            self.isl_timeseries_map[key] = link['timeSeries']
-
-            if link['timeSeries']:
+            timeseries = link.get('timeSeries', [])
+            # Seulement indexer les liens qui ont des timeseries (ceux créés dans Mininet)
+            if timeseries:
+                key = (link['satA'], link['satB'])
+                self.isl_timeseries_map[key] = timeseries
                 self.orbital_period_s = max(
                     self.orbital_period_s,
-                    link['timeSeries'][-1]['timestamp']
+                    timeseries[-1]['timestamp']
                 )
 
         # Indexer les événements GS par temps
@@ -237,7 +253,14 @@ class DynamicLatencyUpdater:
                 self.gs_timeline_map[gs_id] = []
             self.gs_timeline_map[gs_id].append(entry)
 
-        info(f"*** Orbital period detected: {self.orbital_period_s:.0f}s ({self.orbital_period_s/60:.1f} min)\n")
+        # Safety check: ensure orbital period is valid
+        if self.orbital_period_s <= 0:
+            self.orbital_period_s = 6000  # Default to ~100 min if not detected
+            warn(f"*** No orbital period detected, defaulting to {self.orbital_period_s}s\n")
+        else:
+            info(f"*** Orbital period detected: {self.orbital_period_s:.0f}s ({self.orbital_period_s/60:.1f} min)\n")
+
+        info(f"*** ISL links with timeseries: {len(self.isl_timeseries_map)}\n")
         info(f"*** GS Events loaded: {len(self.gs_events)}\n")
 
     def start(self):
@@ -259,19 +282,30 @@ class DynamicLatencyUpdater:
 
     def _update_loop(self):
         """Boucle principale de mise à jour"""
+        import traceback
+        print("*** Updater thread started, first update in {}s".format(self.update_interval), flush=True)
+        loop_count = 0
         while self.running:
-            self._process_gs_events()
-            self._update_isl_latencies()
-            self._update_gs_latencies()
+            loop_count += 1
+            try:
+                print(f"[t={self.current_time:.0f}s] Processing update cycle {loop_count}...", flush=True)
+                self._process_gs_events()
+                self._update_isl_latencies()
+                self._update_gs_latencies()
 
-            time.sleep(self.update_interval)
+                time.sleep(self.update_interval)
 
-            # Incrémenter le temps
-            self.current_time += self.update_interval
-            if self.current_time >= self.orbital_period_s:
-                self.current_time = 0
-                info("*** Orbital period completed, restarting from t=0\n")
-                self.latency_cache.clear()
+                # Incrémenter le temps
+                self.current_time += self.update_interval
+                if self.current_time >= self.orbital_period_s:
+                    self.current_time = 0
+                    info("*** Orbital period completed, restarting from t=0\n")
+                    self.latency_cache.clear()
+            except Exception as e:
+                error(f"*** UPDATER ERROR: {e}\n")
+                traceback.print_exc()
+                # Continue running despite errors
+                time.sleep(self.update_interval)
 
     def _process_gs_events(self):
         """Traite les événements GS pour le temps courant"""
@@ -324,16 +358,17 @@ class DynamicLatencyUpdater:
                     if intf_a and intf_b:
                         # Vérifier le cache pour éviter les mises à jour inutiles
                         if self.latency_cache.should_update(intf_a, latency):
-                            update_link_latency_tc(intf_a, latency)
-                            update_link_latency_tc(intf_b, latency)
+                            # Passer le host pour exécuter dans le bon namespace
+                            update_link_latency_tc(intf_a, latency, host=sat_a_host)
+                            update_link_latency_tc(intf_b, latency, host=sat_b_host)
                             self.latency_cache.update(intf_a, latency)
                             self.latency_cache.update(intf_b, latency)
                             updated_count += 1
                         else:
                             skipped_count += 1
 
-        if updated_count > 0 or skipped_count > 0:
-            info(f"[t={self.current_time:.0f}s] ISL: {updated_count} updated, {skipped_count} unchanged\n")
+        if updated_count > 0:
+            print(f"    ISL latencies: {updated_count} changed", flush=True)
 
     def _update_gs_latencies(self):
         """Met à jour les latences GS via tc netem"""
@@ -416,6 +451,11 @@ def create_network(data):
     link_counts = {'intra-plane': 0, 'inter-plane': 0}
     link_counter = 0
 
+    # Suppress kernel warnings during link creation
+    devnull = open(os.devnull, 'w')
+    old_stderr = os.dup(2)
+    os.dup2(devnull.fileno(), 2)
+
     for link in isl_links:
         satA = link['satA']
         satB = link['satB']
@@ -449,6 +489,11 @@ def create_network(data):
             bw=min(bandwidth, 1000),
             max_queue_size=1000
         )
+
+    # Restore stderr
+    os.dup2(old_stderr, 2)
+    os.close(old_stderr)
+    devnull.close()
 
     info(f"*** ISL links created:\n")
     info(f"    - {link_counts.get('intra-plane', 0)} intra-plane\n")
@@ -505,9 +550,6 @@ def main():
     info("*** Starting network\n")
     net.start()
 
-    # Démarrer la mise à jour dynamique
-    updater.start()
-
     info("\n")
     info("=" * 60 + "\n")
     info("NETWORK READY - ISL + Ground Stations\n")
@@ -518,24 +560,131 @@ def main():
         info("GS links will be created/removed dynamically based on events\n")
 
     info("\n")
-    info("Available Commands:\n")
-    info("  pingall          - Test connectivity between all nodes\n")
-    info("  sat0 ping sat1   - Test specific satellite link\n")
-    info("  gs0 ping sat42   - Test GS to satellite (if connected)\n")
-    info("  iperf sat0 sat1  - Test bandwidth between satellites\n")
-    info("  dump             - Display network information\n")
-    info("  nodes            - List all nodes\n")
-    info("  links            - List all links\n")
-    info("  quit / exit      - Stop network and exit\n")
+    info("Type 'start' to begin dynamic simulation, 'help' for all commands\n")
     info("=" * 60 + "\n")
-    info("\n")
 
-    try:
-        CLI(net)
-    finally:
-        updater.stop()
-        info("*** Stopping network\n")
-        net.stop()
+    # Custom command loop
+    print("\n*** Network ready. Type 'start' to begin simulation, 'help' for commands.\n", flush=True)
+
+    while True:
+        try:
+            cmd = input("mininet> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\n*** Exiting...", flush=True)
+            break
+
+        if not cmd:
+            continue
+
+        parts = cmd.split()
+        command = parts[0].lower()
+
+        if command == 'start':
+            print("*** Starting dynamic updater...", flush=True)
+            updater.start()
+            print("*** Updater running. Use 'stop' to pause.", flush=True)
+
+        elif command == 'stop':
+            updater.stop()
+            print("*** Updater stopped.", flush=True)
+
+        elif command == 'status':
+            print(f"*** Updater running: {updater.running}", flush=True)
+            print(f"*** Current time: {updater.current_time}s", flush=True)
+            print(f"*** Active GS connections: {gs_manager.get_active_connections()}", flush=True)
+
+        elif command == 'pingall':
+            net.pingAll()
+
+        elif command == 'ping' and len(parts) >= 3:
+            src = net.get(parts[1])
+            dst = net.get(parts[2])
+            if src and dst:
+                print(src.cmd(f'ping -c 4 {dst.IP()}'), flush=True)
+            else:
+                print(f"*** Host not found: {parts[1]} or {parts[2]}", flush=True)
+
+        elif command == 'nodes':
+            print("*** Satellites:", [f"sat{i}" for i in range(len(sat_hosts))], flush=True)
+            print("*** Ground Stations:", list(gs_hosts.keys()), flush=True)
+
+        elif command == 'links':
+            print(f"*** ISL links: {len(isl_links)}", flush=True)
+            print(f"*** Active GS links: {gs_manager.get_active_connections()}", flush=True)
+
+        elif command == 'routing':
+            if len(parts) < 2:
+                print("Usage: routing <isis|simple|off>", flush=True)
+            elif parts[1] == 'isis':
+                print("*** Setting up ISIS routing (requires FRR installed)...", flush=True)
+                setup_isis_network(net, sat_hosts, gs_hosts)
+            elif parts[1] == 'simple':
+                print("*** Setting up simple static routing...", flush=True)
+                setup_simple_routing(net, data)
+            elif parts[1] == 'off':
+                print("*** Stopping ISIS daemons...", flush=True)
+                stop_isis_network(net)
+            else:
+                print("Usage: routing <isis|simple|off>", flush=True)
+
+        elif command == 'routes':
+            # Show routing table for a host
+            if len(parts) >= 2:
+                host = net.get(parts[1])
+                if host:
+                    print(host.cmd('ip route'), flush=True)
+                else:
+                    print(f"*** Unknown host: {parts[1]}", flush=True)
+            else:
+                # Show first satellite's routes as example
+                sat0 = net.get('sat0')
+                if sat0:
+                    print("*** Routes for sat0:", flush=True)
+                    print(sat0.cmd('ip route'), flush=True)
+
+        elif command == 'dump':
+            for host in net.hosts:
+                print(f"{host.name}: {host.cmd('ifconfig | grep inet | head -5')}", flush=True)
+
+        elif command in ['quit', 'exit']:
+            break
+
+        elif command == 'help':
+            print("""
+Commands:
+  start          - Start the dynamic simulation (latency updates + GS events)
+  stop           - Stop the dynamic simulation
+  status         - Show simulation status
+
+  routing isis   - Enable ISIS routing (requires: sudo apt install frr)
+  routing simple - Enable simple static routing (no FRR needed)
+  routing off    - Disable ISIS routing
+  routes [node]  - Show routing table for a node
+
+  pingall        - Ping between all nodes
+  ping <a> <b>   - Ping from node a to node b (e.g., ping sat0 sat1)
+  nodes          - List all nodes
+  links          - Show link information
+  dump           - Show interface info for all hosts
+  quit / exit    - Stop and exit
+""", flush=True)
+
+        elif len(parts) >= 2:
+            # Direct host command: sat0 ping sat1
+            host = net.get(parts[0])
+            if host:
+                result = host.cmd(' '.join(parts[1:]))
+                print(result, flush=True)
+            else:
+                print(f"*** Unknown host: {parts[0]}", flush=True)
+
+        else:
+            print(f"*** Unknown command: {cmd}. Type 'help' for commands.", flush=True)
+
+    updater.stop()
+    stop_isis_network(net)
+    info("*** Stopping network\n")
+    net.stop()
 
 
 if __name__ == '__main__':
