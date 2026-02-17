@@ -17,25 +17,31 @@ from mininet.log import info, warn, error
 
 
 FRR_CONF_DIR = "/tmp/frr_configs"
+FRR_BIN_DIR = None  # Detected at runtime by check_frr_installed()
 
 
 def check_frr_installed():
-    """Check if FRRouting is installed"""
-    # Check common FRR paths
-    frr_paths = [
-        "/usr/lib/frr/isisd",
-        "/usr/sbin/isisd",
-        "/usr/local/sbin/isisd",
+    """Check if FRRouting is installed, return and cache the bin directory."""
+    global FRR_BIN_DIR
+
+    frr_dirs = [
+        "/usr/lib/frr",
+        "/usr/sbin",
+        "/usr/local/sbin",
     ]
 
-    for path in frr_paths:
-        if os.path.exists(path):
-            return path
+    for d in frr_dirs:
+        if os.path.exists(f"{d}/isisd") and os.path.exists(f"{d}/zebra"):
+            FRR_BIN_DIR = d
+            info(f"*** FRR binaries found in {d}\n")
+            return d
 
     # Try which as fallback
-    result = os.system("which isisd > /dev/null 2>&1")
-    if result == 0:
-        return "isisd"
+    result = os.popen("which isisd 2>/dev/null").read().strip()
+    if result:
+        FRR_BIN_DIR = os.path.dirname(result)
+        info(f"*** FRR binaries found via which: {FRR_BIN_DIR}\n")
+        return FRR_BIN_DIR
 
     warn("FRRouting (isisd) not found. Install with: sudo apt-get install frr\n")
     warn("Then enable ISIS: sudo sed -i 's/isisd=no/isisd=yes/' /etc/frr/daemons\n")
@@ -157,27 +163,70 @@ def setup_isis_node(host, is_gs: bool = False):
     (conf_dir / "zebra.conf").write_text(zebra_conf)
     (conf_dir / "daemons").write_text(daemons_conf)
 
+    # Ensure frr user can read configs
+    os.system(f"chown -R frr:frr {conf_dir}")
+
     # Enable IP forwarding
     host.cmd('sysctl -w net.ipv4.ip_forward=1')
 
     # Start FRR daemons in the host's namespace
-    # Note: This requires FRR to be installed on the system
     pid_dir = f"/tmp/frr_pids/{hostname}"
     host.cmd(f'mkdir -p {pid_dir}')
+    host.cmd(f'chown -R frr:frr {pid_dir}')
+    host.cmd(f'chmod 755 {pid_dir}')
+
+    zebra_bin = f"{FRR_BIN_DIR}/zebra"
+    isisd_bin = f"{FRR_BIN_DIR}/isisd"
 
     # Start zebra first (required by other daemons)
-    host.cmd(f'zebra -d -f {conf_dir}/zebra.conf '
-             f'-i {pid_dir}/zebra.pid '
-             f'-z {pid_dir}/zebra.sock '
-             f'--vty_socket {pid_dir}')
+    # Capture stderr to detect startup failures
+    zebra_out = host.cmd(f'{zebra_bin} -d -f {conf_dir}/zebra.conf '
+                         f'-i {pid_dir}/zebra.pid '
+                         f'-z {pid_dir}/zebra.sock '
+                         f'--vty_socket {pid_dir} 2>&1')
+    if zebra_out.strip():
+        warn(f"*** [{hostname}] zebra output: {zebra_out.strip()}\n")
 
     time.sleep(0.5)  # Wait for zebra to start
 
+    # Verify zebra actually started by checking PID file
+    zebra_pid = host.cmd(f'cat {pid_dir}/zebra.pid 2>/dev/null').strip()
+    if not zebra_pid or not zebra_pid.isdigit():
+        error(f"*** [{hostname}] zebra FAILED to start! No PID file.\n")
+        error(f"*** [{hostname}] Config was:\n{zebra_conf}\n")
+        return False
+
+    zebra_alive = host.cmd(f'kill -0 {zebra_pid} 2>&1').strip()
+    if zebra_alive:
+        error(f"*** [{hostname}] zebra PID {zebra_pid} is NOT running: {zebra_alive}\n")
+        return False
+
+    # Verify zebra VTY socket exists
+    vty_check = host.cmd(f'ls {pid_dir}/zebra.vty 2>&1').strip()
+    if 'No such file' in vty_check:
+        warn(f"*** [{hostname}] zebra.vty socket not found, waiting 1s more...\n")
+        time.sleep(1)
+        vty_check = host.cmd(f'ls {pid_dir}/zebra.vty 2>&1').strip()
+        if 'No such file' in vty_check:
+            error(f"*** [{hostname}] zebra.vty still missing! Contents of {pid_dir}:\n")
+            error(f"    {host.cmd(f'ls -la {pid_dir}/')}\n")
+            return False
+
     # Start isisd
-    host.cmd(f'isisd -d -f {conf_dir}/isisd.conf '
-             f'-i {pid_dir}/isisd.pid '
-             f'-z {pid_dir}/zebra.sock '
-             f'--vty_socket {pid_dir}')
+    isisd_out = host.cmd(f'{isisd_bin} -d -f {conf_dir}/isisd.conf '
+                         f'-i {pid_dir}/isisd.pid '
+                         f'-z {pid_dir}/zebra.sock '
+                         f'--vty_socket {pid_dir} 2>&1')
+    if isisd_out.strip():
+        warn(f"*** [{hostname}] isisd output: {isisd_out.strip()}\n")
+
+    time.sleep(0.3)
+
+    # Verify isisd started
+    isisd_pid = host.cmd(f'cat {pid_dir}/isisd.pid 2>/dev/null').strip()
+    if not isisd_pid or not isisd_pid.isdigit():
+        error(f"*** [{hostname}] isisd FAILED to start! No PID file.\n")
+        return False
 
     return True
 
@@ -201,6 +250,10 @@ def setup_isis_network(net, sat_hosts: dict, gs_hosts: dict):
     os.system(f"rm -rf {FRR_CONF_DIR}")
     os.system("rm -rf /tmp/frr_pids")
     os.makedirs(FRR_CONF_DIR, exist_ok=True)
+    os.makedirs("/tmp/frr_pids", exist_ok=True)
+    # FRR daemons drop privileges to frr:frr, they need write access
+    os.system(f"chown -R frr:frr {FRR_CONF_DIR}")
+    os.system("chown -R frr:frr /tmp/frr_pids")
 
     configured_count = 0
 
@@ -226,44 +279,147 @@ def stop_isis_network(net):
     info("*** Stopping ISIS daemons...\n")
 
     for host in net.hosts:
-        host.cmd('pkill -f "zebra.*-i /tmp/frr_pids"')
-        host.cmd('pkill -f "isisd.*-i /tmp/frr_pids"')
+        hostname = host.name
+        pid_dir = f"/tmp/frr_pids/{hostname}"
+        # Kill by PID file for precision
+        host.cmd(f'if [ -f {pid_dir}/isisd.pid ]; then kill $(cat {pid_dir}/isisd.pid) 2>/dev/null; fi')
+        host.cmd(f'if [ -f {pid_dir}/zebra.pid ]; then kill $(cat {pid_dir}/zebra.pid) 2>/dev/null; fi')
+
+    # Fallback: kill any remaining
+    os.system('pkill -f "zebra.*-i /tmp/frr_pids" 2>/dev/null')
+    os.system('pkill -f "isisd.*-i /tmp/frr_pids" 2>/dev/null')
 
     os.system(f"rm -rf {FRR_CONF_DIR}")
     os.system("rm -rf /tmp/frr_pids")
 
 
-def update_isis_for_new_link(host):
+def _vtysh(host, command):
+    """Execute a vtysh command on a host."""
+    hostname = host.name
+    return host.cmd(
+        f'vtysh --vty_socket /tmp/frr_pids/{hostname} -c "{command}"'
+    )
+
+
+def _vtysh_config(host, commands):
+    """Execute a list of vtysh configure-terminal commands on a host."""
+    hostname = host.name
+    cmd_str = ' '.join(f'-c "{c}"' for c in ['configure terminal'] + commands)
+    return host.cmd(
+        f'vtysh --vty_socket /tmp/frr_pids/{hostname} {cmd_str}'
+    )
+
+
+def add_interface_to_isis(host, intf_name):
     """
-    Update ISIS configuration when a new link is added (GS connection)
-    Restarts isisd to pick up new interfaces
+    Dynamically add an interface to ISIS via vtysh (no daemon restart).
+    Used for satellites that already have ISIS running.
+    """
+    result = _vtysh_config(host, [
+        f'interface {intf_name}',
+        'ip router isis SAT',
+        'isis circuit-type level-2-only',
+        'isis metric 10',
+        'isis hello-interval 1',
+        'isis hello-multiplier 3',
+    ])
+    if 'error' in result.lower() or 'Unknown' in result:
+        warn(f"*** [{host.name}] vtysh config error for {intf_name}: {result.strip()}\n")
+        return False
+    info(f"*** [{host.name}] Interface {intf_name} added to ISIS dynamically\n")
+    return True
+
+
+def setup_isis_gs(host):
+    """
+    Full ISIS setup for a ground station (first connect).
+    Starts zebra + isisd from scratch.
     """
     hostname = host.name
-    is_gs = hostname.startswith('gs')
-
-    # Get current interfaces
     interfaces = [intf.name for intf in host.intfList() if intf.name != 'lo']
 
     if not interfaces:
         return
 
-    # Regenerate config
+    pid_dir = f"/tmp/frr_pids/{hostname}"
     conf_dir = Path(f"{FRR_CONF_DIR}/{hostname}")
     conf_dir.mkdir(parents=True, exist_ok=True)
 
-    isis_conf = generate_isis_config(hostname, interfaces, is_gs)
+    zebra_bin = f"{FRR_BIN_DIR}/zebra" if FRR_BIN_DIR else "zebra"
+    isisd_bin = f"{FRR_BIN_DIR}/isisd" if FRR_BIN_DIR else "isisd"
+
+    # Generate configs
+    isis_conf = generate_isis_config(hostname, interfaces, is_gs=True)
+    zebra_conf = generate_zebra_config(hostname)
     (conf_dir / "isisd.conf").write_text(isis_conf)
+    (conf_dir / "zebra.conf").write_text(zebra_conf)
+    os.system(f"chown -R frr:frr {conf_dir}")
 
-    pid_dir = f"/tmp/frr_pids/{hostname}"
+    host.cmd(f'mkdir -p {pid_dir}')
+    host.cmd(f'chown -R frr:frr {pid_dir}')
 
-    # Restart isisd to pick up new config
-    host.cmd('pkill -f "isisd.*-i /tmp/frr_pids"')
+    # Check if zebra already running (from a previous connect)
+    zebra_pid = host.cmd(f'cat {pid_dir}/zebra.pid 2>/dev/null').strip()
+    zebra_running = False
+    if zebra_pid and zebra_pid.isdigit():
+        check = host.cmd(f'kill -0 {zebra_pid} 2>&1').strip()
+        zebra_running = (check == '')
+
+    if not zebra_running:
+        host.cmd('sysctl -w net.ipv4.ip_forward=1')
+        host.cmd(f'{zebra_bin} -d -f {conf_dir}/zebra.conf '
+                 f'-i {pid_dir}/zebra.pid '
+                 f'-z {pid_dir}/zebra.sock '
+                 f'--vty_socket {pid_dir} 2>&1')
+        time.sleep(0.5)
+        info(f"*** [{hostname}] zebra started\n")
+
+    # Kill existing isisd (if reconnect) then start fresh
+    host.cmd(f'if [ -f {pid_dir}/isisd.pid ]; then kill $(cat {pid_dir}/isisd.pid) 2>/dev/null; fi')
     time.sleep(0.2)
 
-    host.cmd(f'isisd -d -f {conf_dir}/isisd.conf '
+    host.cmd(f'{isisd_bin} -d -f {conf_dir}/isisd.conf '
              f'-i {pid_dir}/isisd.pid '
              f'-z {pid_dir}/zebra.sock '
-             f'--vty_socket {pid_dir}')
+             f'--vty_socket {pid_dir} 2>&1')
+    time.sleep(0.3)  # Wait for VTY socket
+
+    info(f"*** [{hostname}] ISIS started ({len(interfaces)} interfaces)\n")
+
+
+def update_isis_for_new_link(host):
+    """
+    Update ISIS when a new link is added.
+    - For GS: full setup (start zebra + isisd if needed)
+    - For satellites: dynamic interface add via vtysh (NO restart)
+    """
+    hostname = host.name
+
+    if hostname.startswith('gs'):
+        setup_isis_gs(host)
+    else:
+        # Satellite: ISIS already running, just add the new interface dynamically
+        # Find the latest interface (the one just added by Mininet)
+        interfaces = [intf.name for intf in host.intfList() if intf.name != 'lo']
+        if not interfaces:
+            return
+
+        # The newest interface is the last one
+        new_intf = interfaces[-1]
+
+        # Check if isisd is running
+        pid_dir = f"/tmp/frr_pids/{hostname}"
+        isisd_pid = host.cmd(f'cat {pid_dir}/isisd.pid 2>/dev/null').strip()
+        if isisd_pid and isisd_pid.isdigit():
+            check = host.cmd(f'kill -0 {isisd_pid} 2>&1').strip()
+            if check == '':
+                # isisd running, add interface dynamically
+                add_interface_to_isis(host, new_intf)
+                return
+
+        # isisd not running (shouldn't happen for satellites), fallback to full setup
+        warn(f"*** [{hostname}] isisd not running, doing full setup\n")
+        setup_isis_node(host, is_gs=False)
 
 
 class SimpleRoutingManager:

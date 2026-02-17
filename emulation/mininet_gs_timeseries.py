@@ -41,7 +41,8 @@ from mininet_common import (
     find_interface_for_link,
     LinkLatencyCache
 )
-from isis_routing import setup_isis_network, stop_isis_network, setup_simple_routing
+from isis_routing import setup_isis_network, stop_isis_network, setup_simple_routing, update_isis_for_new_link
+from isis_metrics_collector import ISISMetricsCollector
 
 
 class DynamicGSLinkManager:
@@ -56,6 +57,8 @@ class DynamicGSLinkManager:
         self.sat_hosts = sat_hosts      # {sat_id: host}
         self.active_links = {}          # {gs_id: {'sat_id': int, 'link': Link, 'intf_gs': str, 'intf_sat': str}}
         self.link_counter = 50000       # Compteur pour les sous-réseaux GS (éviter collision avec ISL)
+        self._handover_callbacks = []   # Callbacks called before handover
+        self._connect_callbacks = []    # Callbacks called after successful connect
 
     def connect(self, gs_id, sat_id, latency_ms):
         """
@@ -127,6 +130,14 @@ class DynamicGSLinkManager:
             }
 
             info(f"[GS CONNECT] {gs_id} <-> sat{sat_id} (latency: {latency_ms:.3f}ms)\n")
+
+            # Notify connect callbacks AFTER link is up
+            for cb in self._connect_callbacks:
+                try:
+                    cb(gs_id, sat_id, latency_ms)
+                except Exception as cb_e:
+                    print(f"*** Connect callback error: {cb_e}", flush=True)
+
             return True
 
         except Exception as e:
@@ -161,6 +172,14 @@ class DynamicGSLinkManager:
             error(f"Failed to disconnect {gs_id}: {e}\n")
             return False
 
+    def register_handover_callback(self, callback):
+        """Register a callback called before handover: callback(gs_id, from_sat, to_sat, latency_ms)"""
+        self._handover_callbacks.append(callback)
+
+    def register_connect_callback(self, callback):
+        """Register a callback called after successful connect: callback(gs_id, sat_id, latency_ms)"""
+        self._connect_callbacks.append(callback)
+
     def handover(self, gs_id, from_sat_id, to_sat_id, latency_ms):
         """
         Effectuer un handover atomique: déconnexion ancien sat + connexion nouveau sat
@@ -172,6 +191,13 @@ class DynamicGSLinkManager:
             latency_ms: Latence vers le nouveau satellite
         """
         info(f"[GS HANDOVER] {gs_id}: sat{from_sat_id} -> sat{to_sat_id}\n")
+
+        # Notify callbacks BEFORE disconnect (so measurement threads are ready)
+        for cb in self._handover_callbacks:
+            try:
+                cb(gs_id, from_sat_id, to_sat_id, latency_ms)
+            except Exception as e:
+                print(f"*** Handover callback error: {e}", flush=True)
 
         # Déconnexion
         self.disconnect(gs_id)
@@ -225,6 +251,7 @@ class DynamicLatencyUpdater:
         self.current_time = 0
         self.thread = None
         self.latency_cache = LinkLatencyCache()
+        self.orbit_completed = threading.Event()  # Signaled when one full orbit is done
 
         # Indexer les time series ISL (seulement ceux avec timeseries)
         self.isl_timeseries_map = {}
@@ -298,9 +325,9 @@ class DynamicLatencyUpdater:
                 # Incrémenter le temps
                 self.current_time += self.update_interval
                 if self.current_time >= self.orbital_period_s:
-                    self.current_time = 0
-                    info("*** Orbital period completed, restarting from t=0\n")
-                    self.latency_cache.clear()
+                    print("*** Orbital period completed!", flush=True)
+                    self.running = False
+                    self.orbit_completed.set()
             except Exception as e:
                 error(f"*** UPDATER ERROR: {e}\n")
                 traceback.print_exc()
@@ -546,6 +573,22 @@ def main():
         update_interval=20
     )
 
+    # ISIS: configure ISIS on new GS links when they connect
+    # Must be registered BEFORE metrics callback so ISIS is running when metrics measure
+    def _isis_connect_hook(gs_id, sat_id, latency_ms):
+        gs_host = gs_hosts.get(gs_id)
+        sat_host = sat_hosts.get(sat_id)
+        if gs_host:
+            update_isis_for_new_link(gs_host)
+        if sat_host:
+            update_isis_for_new_link(sat_host)
+    gs_manager.register_connect_callback(_isis_connect_hook)
+
+    # ISIS Metrics Collector
+    isis_collector = ISISMetricsCollector(net, sat_hosts, gs_hosts, gs_manager)
+    gs_manager.register_handover_callback(isis_collector.handover_callback)
+    gs_manager.register_connect_callback(isis_collector.connect_callback)
+
     info("=" * 60 + "\n")
     info("*** Starting network\n")
     net.start()
@@ -563,6 +606,29 @@ def main():
     info("Type 'start' to begin dynamic simulation, 'help' for all commands\n")
     info("=" * 60 + "\n")
 
+    # --- Auto-shutdown thread: waits for orbit completion, saves metrics, exits ---
+    def _orbit_complete_watcher():
+        updater.orbit_completed.wait()
+        print("\n" + "=" * 60, flush=True)
+        print("*** ORBITAL PERIOD COMPLETE - Auto-saving metrics...", flush=True)
+        print("=" * 60, flush=True)
+        if isis_collector._running:
+            isis_collector.print_summary()
+            saved_path = isis_collector.export_json()
+            isis_collector.stop()
+            print(f"*** Metrics auto-saved to: {saved_path}", flush=True)
+        else:
+            print("*** No metrics collector was running, nothing to save.", flush=True)
+        updater.stop()
+        stop_isis_network(net)
+        print("*** Stopping network...", flush=True)
+        net.stop()
+        print("*** Done. Safe to close.", flush=True)
+        os._exit(0)
+
+    orbit_watcher = threading.Thread(target=_orbit_complete_watcher, daemon=True)
+    orbit_watcher.start()
+
     # Custom command loop
     print("\n*** Network ready. Type 'start' to begin simulation, 'help' for commands.\n", flush=True)
 
@@ -576,81 +642,102 @@ def main():
         if not cmd:
             continue
 
-        parts = cmd.split()
-        command = parts[0].lower()
+        try:
+            parts = cmd.split()
+            command = parts[0].lower()
+        except Exception as e:
+            print(f"*** Error parsing command: {e}", flush=True)
+            continue
 
-        if command == 'start':
-            print("*** Starting dynamic updater...", flush=True)
-            updater.start()
-            print("*** Updater running. Use 'stop' to pause.", flush=True)
+        try:
+            if command == 'start':
+                print("*** Starting dynamic updater...", flush=True)
+                updater.start()
+                print("*** Updater running. Use 'stop' to pause.", flush=True)
 
-        elif command == 'stop':
-            updater.stop()
-            print("*** Updater stopped.", flush=True)
+            elif command == 'stop':
+                updater.stop()
+                print("*** Updater stopped.", flush=True)
 
-        elif command == 'status':
-            print(f"*** Updater running: {updater.running}", flush=True)
-            print(f"*** Current time: {updater.current_time}s", flush=True)
-            print(f"*** Active GS connections: {gs_manager.get_active_connections()}", flush=True)
+            elif command == 'status':
+                print(f"*** Updater running: {updater.running}", flush=True)
+                print(f"*** Current time: {updater.current_time}s", flush=True)
+                print(f"*** Active GS connections: {gs_manager.get_active_connections()}", flush=True)
 
-        elif command == 'pingall':
-            net.pingAll()
+            elif command == 'pingall':
+                net.pingAll()
 
-        elif command == 'ping' and len(parts) >= 3:
-            src = net.get(parts[1])
-            dst = net.get(parts[2])
-            if src and dst:
-                print(src.cmd(f'ping -c 4 {dst.IP()}'), flush=True)
-            else:
-                print(f"*** Host not found: {parts[1]} or {parts[2]}", flush=True)
-
-        elif command == 'nodes':
-            print("*** Satellites:", [f"sat{i}" for i in range(len(sat_hosts))], flush=True)
-            print("*** Ground Stations:", list(gs_hosts.keys()), flush=True)
-
-        elif command == 'links':
-            print(f"*** ISL links: {len(isl_links)}", flush=True)
-            print(f"*** Active GS links: {gs_manager.get_active_connections()}", flush=True)
-
-        elif command == 'routing':
-            if len(parts) < 2:
-                print("Usage: routing <isis|simple|off>", flush=True)
-            elif parts[1] == 'isis':
-                print("*** Setting up ISIS routing (requires FRR installed)...", flush=True)
-                setup_isis_network(net, sat_hosts, gs_hosts)
-            elif parts[1] == 'simple':
-                print("*** Setting up simple static routing...", flush=True)
-                setup_simple_routing(net, data)
-            elif parts[1] == 'off':
-                print("*** Stopping ISIS daemons...", flush=True)
-                stop_isis_network(net)
-            else:
-                print("Usage: routing <isis|simple|off>", flush=True)
-
-        elif command == 'routes':
-            # Show routing table for a host
-            if len(parts) >= 2:
-                host = net.get(parts[1])
-                if host:
-                    print(host.cmd('ip route'), flush=True)
+            elif command == 'ping' and len(parts) >= 3:
+                src = net.get(parts[1])
+                dst = net.get(parts[2])
+                if src and dst:
+                    print(src.cmd(f'ping -c 4 {dst.IP()}'), flush=True)
                 else:
-                    print(f"*** Unknown host: {parts[1]}", flush=True)
-            else:
-                # Show first satellite's routes as example
-                sat0 = net.get('sat0')
-                if sat0:
-                    print("*** Routes for sat0:", flush=True)
-                    print(sat0.cmd('ip route'), flush=True)
+                    print(f"*** Host not found: {parts[1]} or {parts[2]}", flush=True)
 
-        elif command == 'dump':
-            for host in net.hosts:
-                print(f"{host.name}: {host.cmd('ifconfig | grep inet | head -5')}", flush=True)
+            elif command == 'nodes':
+                print("*** Satellites:", [f"sat{i}" for i in range(len(sat_hosts))], flush=True)
+                print("*** Ground Stations:", list(gs_hosts.keys()), flush=True)
 
-        elif command in ['quit', 'exit']:
-            break
+            elif command == 'links':
+                print(f"*** ISL links: {len(isl_links)}", flush=True)
+                print(f"*** Active GS links: {gs_manager.get_active_connections()}", flush=True)
 
-        elif command == 'help':
-            print("""
+            elif command == 'routing':
+                if len(parts) < 2:
+                    print("Usage: routing <isis|simple|off>", flush=True)
+                elif parts[1] == 'isis':
+                    print("*** Setting up ISIS routing (requires FRR installed)...", flush=True)
+                    setup_isis_network(net, sat_hosts, gs_hosts)
+                elif parts[1] == 'simple':
+                    print("*** Setting up simple static routing...", flush=True)
+                    setup_simple_routing(net, data)
+                elif parts[1] == 'off':
+                    print("*** Stopping ISIS daemons...", flush=True)
+                    stop_isis_network(net)
+                else:
+                    print("Usage: routing <isis|simple|off>", flush=True)
+
+            elif command == 'metrics':
+                if len(parts) < 2:
+                    print("Usage: metrics <start|stop|status|summary|export [file]>", flush=True)
+                elif parts[1] == 'start':
+                    isis_collector.start(get_sim_time=lambda: updater.current_time)
+                    print("*** Metrics collection started.", flush=True)
+                elif parts[1] == 'stop':
+                    isis_collector.stop()
+                elif parts[1] == 'status':
+                    isis_collector.status()
+                elif parts[1] == 'summary':
+                    isis_collector.print_summary()
+                elif parts[1] == 'export':
+                    filepath = parts[2] if len(parts) >= 3 else None
+                    isis_collector.export_json(filepath)
+                else:
+                    print("Usage: metrics <start|stop|status|summary|export [file]>", flush=True)
+
+            elif command == 'routes':
+                if len(parts) >= 2:
+                    host = net.get(parts[1])
+                    if host:
+                        print(host.cmd('ip route'), flush=True)
+                    else:
+                        print(f"*** Unknown host: {parts[1]}", flush=True)
+                else:
+                    sat0 = net.get('sat0')
+                    if sat0:
+                        print("*** Routes for sat0:", flush=True)
+                        print(sat0.cmd('ip route'), flush=True)
+
+            elif command == 'dump':
+                for host in net.hosts:
+                    print(f"{host.name}: {host.cmd('ifconfig | grep inet | head -5')}", flush=True)
+
+            elif command in ['quit', 'exit']:
+                break
+
+            elif command == 'help':
+                print("""
 Commands:
   start          - Start the dynamic simulation (latency updates + GS events)
   stop           - Stop the dynamic simulation
@@ -661,6 +748,12 @@ Commands:
   routing off    - Disable ISIS routing
   routes [node]  - Show routing table for a node
 
+  metrics start          - Start ISIS metrics collection (SPF, LSP, handover)
+  metrics stop           - Stop metrics collection
+  metrics status         - Show number of collected events
+  metrics summary        - Print human-readable metrics summary
+  metrics export [file]  - Export metrics to JSON (default: isis_metrics_<ts>.json)
+
   pingall        - Ping between all nodes
   ping <a> <b>   - Ping from node a to node b (e.g., ping sat0 sat1)
   nodes          - List all nodes
@@ -669,18 +762,21 @@ Commands:
   quit / exit    - Stop and exit
 """, flush=True)
 
-        elif len(parts) >= 2:
-            # Direct host command: sat0 ping sat1
-            host = net.get(parts[0])
-            if host:
-                result = host.cmd(' '.join(parts[1:]))
-                print(result, flush=True)
+            elif len(parts) >= 2:
+                host = net.get(parts[0])
+                if host:
+                    result = host.cmd(' '.join(parts[1:]))
+                    print(result, flush=True)
+                else:
+                    print(f"*** Unknown host: {parts[0]}", flush=True)
+
             else:
-                print(f"*** Unknown host: {parts[0]}", flush=True)
+                print(f"*** Unknown command: {cmd}. Type 'help' for commands.", flush=True)
 
-        else:
-            print(f"*** Unknown command: {cmd}. Type 'help' for commands.", flush=True)
+        except Exception as e:
+            print(f"*** Error executing '{cmd}': {e}", flush=True)
 
+    isis_collector.stop()
     updater.stop()
     stop_isis_network(net)
     info("*** Stopping network\n")
