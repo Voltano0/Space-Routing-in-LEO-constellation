@@ -15,9 +15,18 @@ import time
 from pathlib import Path
 from mininet.log import info, warn, error
 
+from emulation_utils import compute_net_address
+
 
 FRR_CONF_DIR = "/tmp/frr_configs"
 FRR_BIN_DIR = None  # Detected at runtime by check_frr_installed()
+
+# Area-based routing state (set by setup_isis_network)
+_area_config = {
+    'enabled': False,
+    'sat_planes': {},   # {sat_id: plane_id}
+    'link_map': {},     # {sat_id: {label: {'intf': str, 'type': str, ...}}}
+}
 
 
 def check_frr_installed():
@@ -48,7 +57,8 @@ def check_frr_installed():
     return None
 
 
-def generate_isis_config(hostname: str, interfaces: list, is_gs: bool = False) -> str:
+def generate_isis_config(hostname: str, interfaces: list, is_gs: bool = False,
+                         plane_id: int = None, intf_types: dict = None) -> str:
     """
     Generate FRR ISIS configuration for a node
 
@@ -56,22 +66,29 @@ def generate_isis_config(hostname: str, interfaces: list, is_gs: bool = False) -
         hostname: Node hostname (sat0, gs1, etc.)
         interfaces: List of interface names
         is_gs: True if this is a ground station
+        plane_id: Orbital plane ID (0-7) for area-based routing. None = flat L2-only.
+        intf_types: Dict {intf_name: 'intra-plane'|'inter-plane'|'gs'} for per-interface circuit type.
+                    Only used when plane_id is set.
 
     Returns:
         FRR configuration string
     """
-    # ISIS NET address format: 49.0001.XXXX.XXXX.XXXX.00
-    # We use the hostname to generate a unique system ID
-    if is_gs:
-        # Ground stations: gs1 -> 0000.0000.0001
-        gs_num = int(hostname.replace('gs', ''))
-        sys_id = f"0000.0000.{gs_num:04d}"
-    else:
-        # Satellites: sat42 -> 0000.0000.1042
-        sat_num = int(hostname.replace('sat', ''))
-        sys_id = f"0000.0001.{sat_num:04d}"
+    use_areas = plane_id is not None
+    if intf_types is None:
+        intf_types = {}
 
-    net_address = f"49.0001.{sys_id}.00"
+    # ISIS NET address — délégué à emulation_utils.compute_net_address
+    net_address = compute_net_address(hostname, is_gs, plane_id if use_areas else None)
+
+    # Node type: flat = L2-only, areas = L1/L2 for sats (they all have inter-plane links)
+    # GS nodes are L1-only (they connect within one area)
+    if use_areas:
+        if is_gs:
+            is_type = "level-1"
+        else:
+            is_type = "level-1-2"
+    else:
+        is_type = "level-2-only"
 
     config = f"""! FRR configuration for {hostname}
 frr version 8.1
@@ -82,7 +99,7 @@ no ipv6 forwarding
 !
 router isis SAT
   net {net_address}
-  is-type level-2-only
+  is-type {is_type}
   metric-style wide
   lsp-gen-interval 1
   spf-interval 1
@@ -91,10 +108,23 @@ router isis SAT
 
     # Add interface configurations
     for intf in interfaces:
-        if intf != 'lo':
-            config += f"""interface {intf}
+        if intf == 'lo':
+            continue
+
+        # Determine circuit-type per interface
+        if use_areas and intf in intf_types:
+            link_type = intf_types[intf]
+            if link_type == 'inter-plane':
+                circuit_type = "level-2-only"
+            else:
+                # intra-plane and gs links are L1
+                circuit_type = "level-1"
+        else:
+            circuit_type = is_type if not use_areas else "level-1"
+
+        config += f"""interface {intf}
   ip router isis SAT
-  isis circuit-type level-2-only
+  isis circuit-type {circuit_type}
   isis metric 10
   isis hello-interval 1
   isis hello-multiplier 3
@@ -129,13 +159,16 @@ ripngd=no
 """
 
 
-def setup_isis_node(host, is_gs: bool = False):
+def setup_isis_node(host, is_gs: bool = False, plane_id: int = None,
+                    intf_types: dict = None):
     """
     Configure ISIS routing on a single Mininet host
 
     Args:
         host: Mininet host object
         is_gs: True if this is a ground station
+        plane_id: Orbital plane ID for area-based routing. None = flat L2-only.
+        intf_types: Dict {intf_name: 'intra-plane'|'inter-plane'|'gs'}
     """
     hostname = host.name
 
@@ -154,7 +187,8 @@ def setup_isis_node(host, is_gs: bool = False):
     conf_dir.mkdir(parents=True, exist_ok=True)
 
     # Generate configurations
-    isis_conf = generate_isis_config(hostname, interfaces, is_gs)
+    isis_conf = generate_isis_config(hostname, interfaces, is_gs,
+                                     plane_id=plane_id, intf_types=intf_types)
     zebra_conf = generate_zebra_config(hostname)
     daemons_conf = generate_daemons_config()
 
@@ -231,7 +265,8 @@ def setup_isis_node(host, is_gs: bool = False):
     return True
 
 
-def setup_isis_network(net, sat_hosts: dict, gs_hosts: dict):
+def setup_isis_network(net, sat_hosts: dict, gs_hosts: dict,
+                       sat_planes: dict = None, link_map: dict = None):
     """
     Configure ISIS routing on all nodes in the network
 
@@ -239,30 +274,54 @@ def setup_isis_network(net, sat_hosts: dict, gs_hosts: dict):
         net: Mininet network
         sat_hosts: Dictionary of satellite hosts {sat_id: host}
         gs_hosts: Dictionary of ground station hosts {gs_id: host}
+        sat_planes: Dict {sat_id: plane_id} for area-based routing. None = flat L2-only.
+        link_map: Dict {sat_id: {label: {'intf': str, 'type': str, ...}}} for interface types.
     """
     if not check_frr_installed():
         warn("*** ISIS setup skipped - FRR not installed\n")
         return False
 
-    info("*** Setting up ISIS routing on all nodes...\n")
+    use_areas = sat_planes is not None and len(sat_planes) > 0
+
+    # Store area config globally for dynamic link additions (GS connect/handover)
+    _area_config['enabled'] = use_areas
+    _area_config['sat_planes'] = sat_planes or {}
+    _area_config['link_map'] = link_map or {}
+
+    if use_areas:
+        info("*** Setting up ISIS routing with AREAS (1 area per orbital plane)...\n")
+        planes_set = sorted(set(sat_planes.values()))
+        info(f"    Areas: {len(planes_set)} planes -> areas {['49.%04d' % (p+1) for p in planes_set]}\n")
+    else:
+        info("*** Setting up ISIS routing (flat L2-only)...\n")
 
     # Clean up any previous FRR configs
     os.system(f"rm -rf {FRR_CONF_DIR}")
     os.system("rm -rf /tmp/frr_pids")
     os.makedirs(FRR_CONF_DIR, exist_ok=True)
     os.makedirs("/tmp/frr_pids", exist_ok=True)
-    # FRR daemons drop privileges to frr:frr, they need write access
     os.system(f"chown -R frr:frr {FRR_CONF_DIR}")
     os.system("chown -R frr:frr /tmp/frr_pids")
 
     configured_count = 0
 
+    # Build per-satellite interface type mapping from link_map
+    sat_intf_types = {}  # {sat_id: {intf_name: link_type}}
+    if use_areas and link_map:
+        for sat_id, labels in link_map.items():
+            sat_intf_types[sat_id] = {}
+            for label, info_dict in labels.items():
+                sat_intf_types[sat_id][info_dict['intf']] = info_dict['type']
+
     # Configure satellites
     for sat_id, host in sat_hosts.items():
-        if setup_isis_node(host, is_gs=False):
+        plane_id = sat_planes.get(sat_id) if use_areas else None
+        intf_types = sat_intf_types.get(sat_id, {}) if use_areas else None
+        if setup_isis_node(host, is_gs=False, plane_id=plane_id, intf_types=intf_types):
             configured_count += 1
 
     # Configure ground stations (if they have interfaces)
+    # GS joins the area of its connected satellite
     for gs_id, host in gs_hosts.items():
         if setup_isis_node(host, is_gs=True):
             configured_count += 1
@@ -310,15 +369,27 @@ def _vtysh_config(host, commands):
     )
 
 
-def add_interface_to_isis(host, intf_name):
+def add_interface_to_isis(host, intf_name, link_type: str = None):
     """
     Dynamically add an interface to ISIS via vtysh (no daemon restart).
     Used for satellites that already have ISIS running.
+
+    Args:
+        link_type: 'intra-plane', 'inter-plane', or 'gs'. Used for circuit-type in area mode.
     """
+    # Determine circuit type
+    if _area_config['enabled'] and link_type:
+        if link_type == 'inter-plane':
+            circuit_type = "level-2-only"
+        else:
+            circuit_type = "level-1"
+    else:
+        circuit_type = "level-2-only"
+
     result = _vtysh_config(host, [
         f'interface {intf_name}',
         'ip router isis SAT',
-        'isis circuit-type level-2-only',
+        f'isis circuit-type {circuit_type}',
         'isis metric 10',
         'isis hello-interval 1',
         'isis hello-multiplier 3',
@@ -330,10 +401,13 @@ def add_interface_to_isis(host, intf_name):
     return True
 
 
-def setup_isis_gs(host):
+def setup_isis_gs(host, connected_sat_id: int = None):
     """
     Full ISIS setup for a ground station (first connect).
     Starts zebra + isisd from scratch.
+
+    Args:
+        connected_sat_id: Satellite ID the GS is connecting to (for area assignment).
     """
     hostname = host.name
     interfaces = [intf.name for intf in host.intfList() if intf.name != 'lo']
@@ -348,8 +422,13 @@ def setup_isis_gs(host):
     zebra_bin = f"{FRR_BIN_DIR}/zebra" if FRR_BIN_DIR else "zebra"
     isisd_bin = f"{FRR_BIN_DIR}/isisd" if FRR_BIN_DIR else "isisd"
 
+    # Determine area from connected satellite
+    plane_id = None
+    if _area_config['enabled'] and connected_sat_id is not None:
+        plane_id = _area_config['sat_planes'].get(connected_sat_id)
+
     # Generate configs
-    isis_conf = generate_isis_config(hostname, interfaces, is_gs=True)
+    isis_conf = generate_isis_config(hostname, interfaces, is_gs=True, plane_id=plane_id)
     zebra_conf = generate_zebra_config(hostname)
     (conf_dir / "isisd.conf").write_text(isis_conf)
     (conf_dir / "zebra.conf").write_text(zebra_conf)
@@ -387,19 +466,21 @@ def setup_isis_gs(host):
     info(f"*** [{hostname}] ISIS started ({len(interfaces)} interfaces)\n")
 
 
-def update_isis_for_new_link(host):
+def update_isis_for_new_link(host, connected_sat_id: int = None):
     """
     Update ISIS when a new link is added.
     - For GS: full setup (start zebra + isisd if needed)
     - For satellites: dynamic interface add via vtysh (NO restart)
+
+    Args:
+        connected_sat_id: For GS nodes, the sat_id they're connecting to (for area assignment).
     """
     hostname = host.name
 
     if hostname.startswith('gs'):
-        setup_isis_gs(host)
+        setup_isis_gs(host, connected_sat_id=connected_sat_id)
     else:
         # Satellite: ISIS already running, just add the new interface dynamically
-        # Find the latest interface (the one just added by Mininet)
         interfaces = [intf.name for intf in host.intfList() if intf.name != 'lo']
         if not interfaces:
             return
@@ -414,12 +495,15 @@ def update_isis_for_new_link(host):
             check = host.cmd(f'kill -0 {isisd_pid} 2>&1').strip()
             if check == '':
                 # isisd running, add interface dynamically
-                add_interface_to_isis(host, new_intf)
+                # GS links are L1 in area mode
+                add_interface_to_isis(host, new_intf, link_type='gs')
                 return
 
         # isisd not running (shouldn't happen for satellites), fallback to full setup
+        sat_id = int(hostname.replace('sat', ''))
+        plane_id = _area_config['sat_planes'].get(sat_id) if _area_config['enabled'] else None
         warn(f"*** [{hostname}] isisd not running, doing full setup\n")
-        setup_isis_node(host, is_gs=False)
+        setup_isis_node(host, is_gs=False, plane_id=plane_id)
 
 
 class SimpleRoutingManager:

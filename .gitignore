@@ -1,1 +1,5 @@
 json_format/
+node_modules/
+emulation/__pycache__
+emulation/plots/
+emulation/orbital_periods/

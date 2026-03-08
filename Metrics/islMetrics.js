@@ -84,7 +84,10 @@ class ISLMetrics {
         }
 
         // Créer les liens inter-plan
+        // On utilise un Set pour éviter les doublons (ex : 2 plans → plan 0→1 et plan 1→0
+        // pointent vers les mêmes paires une fois l'ordre canonique appliqué).
         const phaseOffset = Math.round(phase);
+        const seenInter = new Set();
 
         for (let p = 0; p < numPlanes; p++) {
             const currentPlane = planeInfo[p];
@@ -97,18 +100,22 @@ class ISLMetrics {
                 const adjacentSatIndexInPlane = (s - phaseOffset + nextPlane.count) % nextPlane.count;
                 const satB = nextPlane.startIndex + adjacentSatIndexInPlane;
 
+                const canonA = Math.min(satA, satB);
+                const canonB = Math.max(satA, satB);
+                const key = this._getPairKey(canonA, canonB);
+
+                if (seenInter.has(key)) continue;
+                seenInter.add(key);
+
                 const pair = {
-                    satA: Math.min(satA, satB),
-                    satB: Math.max(satA, satB),
+                    satA: canonA,
+                    satB: canonB,
                     type: 'inter-plane',
                     planeA: p,
                     planeB: (p + 1) % numPlanes
                 };
 
                 this.islPairs.push(pair);
-
-                // Initialiser le tableau d'échantillons
-                const key = this._getPairKey(pair.satA, pair.satB);
                 this.islSamples.set(key, []);
             }
         }

@@ -43,6 +43,7 @@ from mininet_common import (
 )
 from isis_routing import setup_isis_network, stop_isis_network, setup_simple_routing, update_isis_for_new_link
 from isis_metrics_collector import ISISMetricsCollector
+from emulation_utils import compute_isl_subnet, compute_gs_subnet
 
 
 class DynamicGSLinkManager:
@@ -82,12 +83,10 @@ class DynamicGSLinkManager:
 
         # Générer les IPs pour ce lien
         self.link_counter += 1
-        subnet_base = 192
-        subnet_second = 168 + (self.link_counter // 256) % 87  # Reste dans 192.168.x.x
-        subnet_third = self.link_counter % 256
+        subnet = compute_gs_subnet(self.link_counter)
 
-        ip_gs = f'{subnet_base}.{subnet_second}.{subnet_third}.1/30'
-        ip_sat = f'{subnet_base}.{subnet_second}.{subnet_third}.2/30'
+        ip_gs = f'{subnet}.1/30'
+        ip_sat = f'{subnet}.2/30'
 
         try:
             # Suppress kernel warnings during link creation
@@ -252,6 +251,7 @@ class DynamicLatencyUpdater:
         self.thread = None
         self.latency_cache = LinkLatencyCache()
         self.orbit_completed = threading.Event()  # Signaled when one full orbit is done
+        self.speed_factor = 1  # 1 = real-time, 100 = x100, etc.
 
         # Indexer les time series ISL (seulement ceux avec timeseries)
         self.isl_timeseries_map = {}
@@ -444,7 +444,7 @@ def create_network(data):
         data: Données JSON parsées
 
     Returns:
-        tuple: (net, sat_hosts, gs_hosts, isl_links, gs_manager)
+        tuple: (net, sat_hosts, gs_hosts, isl_links, gs_manager, link_map)
     """
     info("*** Creating Mininet network with ISL + GS support\n")
     net = Mininet(link=TCLink, controller=None)
@@ -478,6 +478,11 @@ def create_network(data):
     link_counts = {'intra-plane': 0, 'inter-plane': 0}
     link_counter = 0
 
+    # link_map[sat_id] = {label: {'peer': peer_sat, 'intf': interface_name, 'type': link_type, 'bandwidth_mbps': bw}}
+    link_map = {}
+    # Track per-sat counters for label assignment: intra-plane -> .1/.2, inter-plane -> .3/.4
+    _label_counters = {}  # {sat_id: {'intra-plane': int, 'inter-plane': int}}
+
     # Suppress kernel warnings during link creation
     devnull = open(os.devnull, 'w')
     old_stderr = os.dup(2)
@@ -499,15 +504,12 @@ def create_network(data):
         link_counts[link_type] = link_counts.get(link_type, 0) + 1
 
         # Générer les IPs
-        subnet_base = 10 + (link_counter // 65536)
-        subnet_second = (link_counter // 256) % 256
-        subnet_third = link_counter % 256
-
-        ip_a = f'{subnet_base}.{subnet_second}.{subnet_third}.1/30'
-        ip_b = f'{subnet_base}.{subnet_second}.{subnet_third}.2/30'
+        subnet = compute_isl_subnet(link_counter)
+        ip_a = f'{subnet}.1/30'
+        ip_b = f'{subnet}.2/30'
         link_counter += 1
 
-        net.addLink(
+        mn_link = net.addLink(
             sat_hosts[satA],
             sat_hosts[satB],
             params1={'ip': ip_a},
@@ -517,6 +519,34 @@ def create_network(data):
             max_queue_size=1000
         )
 
+        # Build link_map entries for both endpoints
+        intf_a_name = mn_link.intf1.name
+        intf_b_name = mn_link.intf2.name
+        effective_bw = min(bandwidth, 1000)
+
+        for sat_id, peer_id, intf_name in [(satA, satB, intf_a_name), (satB, satA, intf_b_name)]:
+            if sat_id not in link_map:
+                link_map[sat_id] = {}
+            if sat_id not in _label_counters:
+                _label_counters[sat_id] = {'intra-plane': 0, 'inter-plane': 0}
+
+            if link_type == 'intra-plane':
+                _label_counters[sat_id]['intra-plane'] += 1
+                label_num = _label_counters[sat_id]['intra-plane']  # 1 or 2
+            elif link_type == 'inter-plane':
+                _label_counters[sat_id]['inter-plane'] += 1
+                label_num = _label_counters[sat_id]['inter-plane'] + 2  # 3 or 4
+            else:
+                continue
+
+            label = f"{sat_id}.{label_num}"
+            link_map[sat_id][label] = {
+                'peer': peer_id,
+                'intf': intf_name,
+                'type': link_type,
+                'bandwidth_mbps': effective_bw,
+            }
+
     # Restore stderr
     os.dup2(old_stderr, 2)
     os.close(old_stderr)
@@ -525,11 +555,12 @@ def create_network(data):
     info(f"*** ISL links created:\n")
     info(f"    - {link_counts.get('intra-plane', 0)} intra-plane\n")
     info(f"    - {link_counts.get('inter-plane', 0)} inter-plane\n")
+    info(f"*** Link map built: {len(link_map)} satellites mapped\n")
 
     # Créer le gestionnaire de liens GS (les liens seront créés dynamiquement)
     gs_manager = DynamicGSLinkManager(net, gs_hosts, sat_hosts)
 
-    return net, sat_hosts, gs_hosts, isl_links, gs_manager
+    return net, sat_hosts, gs_hosts, isl_links, gs_manager, link_map
 
 
 def main():
@@ -564,7 +595,7 @@ def main():
     display_constellation_info(data)
 
     # Créer le réseau
-    net, sat_hosts, gs_hosts, isl_links, gs_manager = create_network(data)
+    net, sat_hosts, gs_hosts, isl_links, gs_manager, link_map = create_network(data)
 
     # Créer le gestionnaire de latences dynamiques
     gs_links_data = get_gs_links(data) if has_ground_stations(data) else {}
@@ -579,13 +610,13 @@ def main():
         gs_host = gs_hosts.get(gs_id)
         sat_host = sat_hosts.get(sat_id)
         if gs_host:
-            update_isis_for_new_link(gs_host)
+            update_isis_for_new_link(gs_host, connected_sat_id=sat_id)
         if sat_host:
             update_isis_for_new_link(sat_host)
     gs_manager.register_connect_callback(_isis_connect_hook)
 
     # ISIS Metrics Collector
-    isis_collector = ISISMetricsCollector(net, sat_hosts, gs_hosts, gs_manager)
+    isis_collector = ISISMetricsCollector(net, sat_hosts, gs_hosts, gs_manager, link_map=link_map)
     gs_manager.register_handover_callback(isis_collector.handover_callback)
     gs_manager.register_connect_callback(isis_collector.connect_callback)
 
@@ -685,9 +716,17 @@ def main():
 
             elif command == 'routing':
                 if len(parts) < 2:
-                    print("Usage: routing <isis|simple|off>", flush=True)
+                    print("Usage: routing <isis|isis-areas|simple|off>", flush=True)
+                elif parts[1] == 'isis-areas':
+                    print("*** Setting up ISIS routing with AREAS (1 area per orbital plane)...", flush=True)
+                    # Build sat_planes from topology data
+                    _sat_planes = {}
+                    for sat in get_satellites(data):
+                        _sat_planes[sat['id']] = sat.get('plane', sat['id'] // 8)
+                    setup_isis_network(net, sat_hosts, gs_hosts,
+                                       sat_planes=_sat_planes, link_map=link_map)
                 elif parts[1] == 'isis':
-                    print("*** Setting up ISIS routing (requires FRR installed)...", flush=True)
+                    print("*** Setting up ISIS routing (flat L2-only)...", flush=True)
                     setup_isis_network(net, sat_hosts, gs_hosts)
                 elif parts[1] == 'simple':
                     print("*** Setting up simple static routing...", flush=True)

@@ -19,6 +19,9 @@ export const SPEED_OF_LIGHT = 299792.458; // km/s
 /** Vitesse de rotation de la Terre en rad/s (un tour en 24h) */
 export const EARTH_ROTATION_RATE = (2 * Math.PI) / (24 * 60 * 60); // rad/s
 
+/** Durée d'un jour sidéral en secondes (23h 56min 4s) - période de répétition au sol */
+export const SIDEREAL_DAY_SECONDS = 86164; // secondes
+
 // ========================================
 // CONSTANTES DE SIMULATION
 // ========================================

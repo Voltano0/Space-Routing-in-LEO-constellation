@@ -2,7 +2,7 @@ import ContactMetrics from './contactMetrics.js';
 import ISLMetrics from './islMetrics.js';
 import GSMetrics from './gsMetrics.js';
 import { exportAllToCSV, downloadJSON, downloadSummary, downloadMininet } from './exporters.js';
-import { DEFAULT_SAMPLING_INTERVAL, DEFAULT_ORBITAL_PERIODS } from '../constants.js';
+import { DEFAULT_SAMPLING_INTERVAL, DEFAULT_ORBITAL_PERIODS, SIDEREAL_DAY_SECONDS } from '../constants.js';
 
 class MetricsCollector {
     constructor() {
@@ -20,6 +20,10 @@ class MetricsCollector {
 
         // Option pour inclure les ground stations
         this.includeGroundStations = false;
+
+        // Option pour utiliser la période terrestre (jour sidéral) au lieu de la période orbitale
+        // Utile pour les GS car le ground track se répète après ~24h
+        this.useGroundTrackPeriod = false;
 
         // Références aux données GS (passées lors du démarrage)
         this.groundStationsData = null;
@@ -53,6 +57,7 @@ class MetricsCollector {
         this.groundStationsData = gsOptions?.groundStations || [];
         this.groundStationMeshes = gsOptions?.groundStationMeshes || [];
         this.getTrackingState = gsOptions?.getTrackingState || null;
+        this.useGroundTrackPeriod = gsOptions?.useGroundTrackPeriod || false;
 
         // Réinitialiser les métriques appropriées
         if (mode === 'isl') {
@@ -74,8 +79,14 @@ class MetricsCollector {
                 console.log(`GSMetrics: Enabled with ${this.groundStationsData.length} ground stations`);
             }
 
-            // Pour ISL : collecter sur 1 période orbitale seulement
-            this.targetOrbitalPeriods = 1;
+            // Pour ISL : collecter sur 1 période orbitale, ou 1 jour sidéral si GS + ground track period
+            if (this.includeGroundStations && this.useGroundTrackPeriod) {
+                // Utiliser le jour sidéral pour les GS (ground track repeat)
+                this.targetOrbitalPeriods = Math.ceil(SIDEREAL_DAY_SECONDS / (orbitalPeriod * 60));
+                console.log(`Using ground track period: ${this.targetOrbitalPeriods} orbital periods (~24h)`);
+            } else {
+                this.targetOrbitalPeriods = 1;
+            }
         } else {
             this.contactMetrics.reset();
             // Pour neighbor links : garder 5 périodes
@@ -94,6 +105,9 @@ class MetricsCollector {
         console.log(`Starting ${mode} metrics collection for ${this.targetOrbitalPeriods} orbital period(s)`);
         if (this.includeGroundStations) {
             console.log(`  -> Including ${this.groundStationsData.length} ground stations`);
+            if (this.useGroundTrackPeriod) {
+                console.log(`  -> Using ground track period (~${(SIDEREAL_DAY_SECONDS / 3600).toFixed(1)}h)`);
+            }
         }
     }
 

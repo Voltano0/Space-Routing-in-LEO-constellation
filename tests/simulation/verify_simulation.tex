@@ -1,0 +1,369 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{caption}
+\usepackage{parskip}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{microtype}
+
+\geometry{margin=2.5cm}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!60!black,
+    urlcolor=blue!60!black,
+}
+
+\lstset{
+    basicstyle=\ttfamily\small,
+    backgroundcolor=\color{gray!10},
+    frame=single,
+    rulecolor=\color{gray!40},
+    breaklines=true,
+    language=JavaScript,
+    keywordstyle=\color{blue!70!black}\bfseries,
+    commentstyle=\color{green!50!black}\itshape,
+    stringstyle=\color{orange!80!black},
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    numbersep=8pt,
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{\small \texttt{verify\_simulation.js}}
+\lhead{\small Documentation des tests de simulation}
+\cfoot{\thepage}
+
+\title{
+    \textbf{Documentation des tests de simulation}\\[0.4em]
+    \large Vérification de la mécanique orbitale, des positions géographiques,\\
+    de la visibilité et de la topologie ISL\\[0.4em]
+    \normalsize Fichier testé : \texttt{tests/simulation/verify\_simulation.js}
+}
+\author{Projet Space-Routing-in-LEO-constellation}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Introduction et contexte}
+% ─────────────────────────────────────────────────────────────────────────────
+
+Ce document décrit en détail la suite de tests contenue dans le fichier \texttt{verify\_simulation.js}, localisé dans le répertoire \texttt{tests/simulation/}. L'objectif de cette suite est de valider de manière exhaustive et rigoureuse les composantes mathématiques et géométriques de la simulation de constellation de satellites en orbite basse (LEO). La simulation modélise une constellation Walker Delta, constituée de satellites répartis sur plusieurs plans orbitaux, auxquels s'ajoutent des stations au sol (Ground Stations, GS) reliées aux satellites par des liens de visibilité.
+
+La suite couvre 135 cas de test organisés en huit blocs thématiques~: la mécanique orbitale képlérienne, les positions cartésiennes des satellites, les paramètres de la constellation Walker Delta, la conversion de coordonnées géographiques des stations au sol, le calcul de distances entre GS et satellites, la visibilité par ligne de vue (Line of Sight, LOS), la géométrie de l'angle d'élévation, et enfin la topologie des liens inter-satellites (ISL).
+
+\subsection{Convention fondamentale de test}
+
+La règle centrale qui gouverne l'ensemble de la suite est la suivante~: \textbf{toutes les valeurs calculées proviennent exclusivement des fonctions du code source du projet} (répertoires \texttt{simulation/} et \texttt{utils/}), tandis que \textbf{les valeurs attendues sont déduites mathématiquement en ligne} dans le fichier de test, sans faire appel à aucune bibliothèque externe de calcul. Cette contrainte garantit que les tests sont réellement indépendants de l'implémentation et qu'un résultat correct ne peut pas être obtenu par hasard en appelant deux fois la même fonction.
+
+Concrètement, pour tester la période orbitale d'un satellite à 550\,km d'altitude, on calcule dans le test lui-même la valeur attendue $T = 2\pi\sqrt{r^3/\mu}/60$ où $r = R_\oplus + 550$ et $\mu = GM$, puis on compare ce résultat à celui retourné par \texttt{calculateOrbitalPeriod(550)}. Les deux valeurs sont calculées de manière indépendante~; si elles coïncident, la fonction est correcte.
+
+\subsection{Architecture du code testé}
+
+Les fonctions testées sont réparties dans plusieurs modules du projet. \texttt{simulation/constellation.js} fournit \texttt{getSatellitePosition()}, qui calcule la position cartésienne 3D d'un satellite à partir de ses paramètres orbitaux, ainsi que les fonctions de mécanique orbitale \texttt{calculateOrbitalPeriod()}, \texttt{calculateOrbitalVelocity()} et \texttt{calculateAngularVelocity()}, ces dernières étant des ré-exportations de \texttt{utils/orbital-math.js}. \texttt{simulation/groundStations.js} fournit \texttt{cartesianToLatLon()}, qui convertit des coordonnées 3D en latitude/longitude géographiques, et \texttt{calculateGSToSatelliteDistance()}, qui calcule la distance euclidienne en kilomètres entre deux positions 3D. \texttt{utils/raytracing.js} fournit \texttt{checkLineOfSight()}, qui détermine si deux objets ont une ligne de vue directe sans occlusion par la Terre, ainsi que \texttt{calculateDistance()}. Enfin, \texttt{Metrics/islMetrics.js} fournit la classe \texttt{ISLMetrics} et sa méthode \texttt{generateISLPairs()}.
+
+\subsection{Facteur d'échelle et conventions de coordonnées}
+
+La simulation utilise Three.js pour le rendu 3D. Par convention, toutes les distances physiques en kilomètres sont converties en unités Three.js via un facteur d'échelle $S = 0.001$, soit $1\,\text{km} = 0.001\,\text{u}$. Ainsi, le rayon terrestre $R_\oplus = 6371\,\text{km}$ correspond à $6.371\,\text{u}$ dans la scène 3D. Tous les tests qui portent sur des positions 3D tiennent compte de ce facteur~: les valeurs attendues sont exprimées en unités Three.js, et les conversions vers les kilomètres s'effectuent en divisant par $S$.
+
+Le repère de coordonnées utilisé est celui de Three.js, où l'axe $Y$ est vertical (nord géographique = $+Y$), $X$ est dans le plan équatorial et $Z$ complète la base directe. Ce choix conditionne toutes les relations géométriques utilisées dans les cas de test.
+
+\subsection{Exécution des tests}
+
+La suite de tests s'exécute en ligne de commande avec Node.js~:
+
+\begin{lstlisting}[language=bash, numbers=none]
+node tests/simulation/verify_simulation.js
+\end{lstlisting}
+
+Node.js doit être en version~20 ou supérieure pour que les modules ES6 (\texttt{import}/\texttt{export}) soient supportés nativement. Le projet doit disposer du fichier \texttt{package.json} avec \texttt{"type": "module"} et la dépendance \texttt{three} installée via \texttt{npm install}. La sortie est structurée par blocs, chaque bloc affichant le nombre de tests réussis et, en cas d'échec, les détails de chaque assertion échouée.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Bloc 1 — Mécanique orbitale képlérienne (7 tests)}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\subsection{Objectif}
+
+Ce bloc valide les trois fonctions de mécanique orbitale fondamentale réexportées par \texttt{simulation/constellation.js}~: le calcul de la période orbitale, de la vitesse orbitale linéaire et de la vitesse angulaire. Ces fonctions sont au cœur de toute la simulation~: elles déterminent la cinématique des satellites et conditionnent indirectement la cohérence de toutes les positions calculées.
+
+\subsection{Période orbitale}
+
+La période orbitale d'un satellite en orbite circulaire képlérienne est donnée par la troisième loi de Kepler~:
+
+\begin{equation}
+    T = \frac{2\pi\sqrt{r^3/\mu}}{60} \quad [\text{minutes}]
+\end{equation}
+
+où $r = R_\oplus + h$ est le rayon orbital en kilomètres (rayon terrestre plus altitude), et $\mu = GM = 398600.4418\,\text{km}^3/\text{s}^2$ est le paramètre gravitationnel standard de la Terre. Le facteur $1/60$ convertit les secondes en minutes.
+
+Deux cas de référence sont vérifiés. Pour une altitude de $550\,\text{km}$ (caractéristique de la constellation Starlink de SpaceX), le rayon orbital est $r = 6921\,\text{km}$ et la période attendue est d'environ $95.502\,\text{min}$. Pour une altitude de $400\,\text{km}$ (altitude typique de la Station Spatiale Internationale), le rayon orbital est $r = 6771\,\text{km}$ et la période attendue est d'environ $92.41\,\text{min}$. Ces deux valeurs sont calculées dans le test lui-même à partir de la formule ci-dessus, puis comparées aux résultats de \texttt{calculateOrbitalPeriod()}, avec une tolérance de $10^{-6}\,\text{min}$.
+
+\subsection{Vitesse orbitale et angulaire}
+
+La vitesse orbitale linéaire en orbite circulaire découle de l'équilibre entre la force gravitationnelle et la force centripète~:
+
+\begin{equation}
+    v = \sqrt{\mu / r} \quad [\text{km/s}]
+\end{equation}
+
+Pour $h = 550\,\text{km}$, cela donne $v \approx 7.589\,\text{km/s}$, valeur vérifiée avec une tolérance de $10^{-6}\,\text{km/s}$.
+
+La vitesse angulaire $\omega$ est reliée à la période et à la vitesse linéaire par deux relations qui sont vérifiées indépendamment~: d'une part $\omega = 2\pi/T$ (en secondes), et d'autre part $v = \omega r$. Ces deux cohérences croisées constituent des tests de régression robustes~: si l'implémentation de l'une des trois fonctions introduisait une erreur, au moins l'une de ces vérifications échouerait.
+
+\subsection{Lois de Kepler qualitatives}
+
+Deux tests qualitatifs vérifient que les lois de Kepler sont respectées dans le sens attendu. La troisième loi de Kepler implique qu'une altitude plus élevée correspond à une période plus longue~: le test vérifie que $T(800\,\text{km}) > T(550\,\text{km})$. De même, une altitude plus élevée correspond à une vitesse orbitale plus faible~: $v(800\,\text{km}) < v(550\,\text{km})$. Ces vérifications ordinales ne remplacent pas les tests quantitatifs mais les complètent en détectant d'éventuelles erreurs de signe ou d'inversion de variables.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Bloc 2 — Positions cartésiennes des satellites (46 tests)}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\subsection{Modèle géométrique}
+
+La fonction \texttt{getSatellitePosition(altitude, inclination, raan, trueAnomaly)} calcule la position 3D d'un satellite à partir de quatre paramètres orbitaux. L'algorithme procède en deux étapes~: il place d'abord le satellite dans son plan orbital local (coordonnées $x_\text{orb}$ et $z_\text{orb}$), puis applique les rotations d'inclinaison et de RAAN pour obtenir les coordonnées dans le repère géocentrique de Three.js.
+
+\begin{align}
+    r &= (R_\oplus + h) \cdot S \quad [\text{u}] \\
+    x_\text{orb} &= r \cos(\nu), \quad z_\text{orb} = r \sin(\nu) \\
+    x &= x_\text{orb}\cos(\Omega) - z_\text{orb}\cos(i)\sin(\Omega) \\
+    y &= z_\text{orb}\sin(i) \\
+    z &= x_\text{orb}\sin(\Omega) + z_\text{orb}\cos(i)\cos(\Omega)
+\end{align}
+
+où $\nu$ est l'anomalie vraie, $i$ l'inclinaison et $\Omega$ le RAAN (Right Ascension of the Ascending Node), tous exprimés en degrés puis convertis en radians. Tous les angles sont convertis via $\alpha_\text{rad} = \alpha_\text{deg} \cdot \pi/180$ avant utilisation.
+
+\subsection{Invariant géométrique fondamental}
+
+L'invariant le plus fondamental d'une orbite circulaire est que la distance du satellite au centre de la Terre est constante, égale au rayon orbital $r = (R_\oplus + h) \cdot S$ quelle que soit la position sur l'orbite. Mathématiquement~:
+
+\begin{equation}
+    \|\mathbf{p}\| = r \quad \forall \nu, i, \Omega
+\end{equation}
+
+Six combinaisons de paramètres sont testées~: $(\nu, i, \Omega) \in \{(0°,0°,0°),\,(90°,0°,0°),\,(45°,30°,60°),\,(270°,45°,90°),\,(180°,90°,180°),\,(360°,0°,0°)\}$. La tolérance appliquée est de $10^{-9}$ unité Three.js, ce qui correspond à environ $10^{-6}\,\text{m}$~: cette précision ultra-fine reflète le fait que le calcul est entièrement analytique et ne souffre d'aucune erreur d'intégration numérique.
+
+\subsection{Cas canoniques}
+
+Les cas canoniques constituent le cœur du bloc~: ils vérifient que des configurations géométriques simples produisent des résultats parfaitement prévisibles par le raisonnement géométrique. Chaque valeur attendue est déduite manuellement à partir des formules de transformation.
+
+Lorsque l'anomalie vraie, l'inclinaison et le RAAN sont tous nuls, le satellite doit se trouver à $(r, 0, 0)$~: c'est le point d'intersection du nœud ascendant avec le plan équatorial. Pour $\nu = 90°$ et $i = \Omega = 0°$, on obtient $(0, 0, r)$~: le satellite a parcouru un quart d'orbite dans le plan équatorial. Pour $\nu = 180°$, la position est $(-r, 0, 0)$, et pour $\nu = 270°$, elle est $(0, 0, -r)$.
+
+La configuration la plus instructive est $\nu = 90°,\, i = 90°,\, \Omega = 0°$~: l'inclinaison polaire place le plan orbital dans le plan contenant l'axe $Y$, et à $\nu = 90°$ le satellite se trouve exactement au pôle nord géographique $(0, r, 0)$. Symétriquement, $\nu = 270°,\, i = 90°$ produit la position au pôle sud $(0, -r, 0)$.
+
+L'effet du RAAN est vérifié pour $\Omega = 90°$~: le plan orbital est tourné de $90°$ autour de l'axe $Y$, ce qui place le satellite à $\nu = 0°$ en $(0, 0, r)$ plutôt que $(r, 0, 0)$. Enfin, le cas intermédiaire $\nu = 45°,\, i = 0°,\, \Omega = 0°$ vérifie que la décomposition trigonométrique $(\cos 45°, 0, \sin 45°)$ est correcte.
+
+\subsection{Propriétés de symétrie}
+
+Trois propriétés de symétrie sont testées indépendamment des cas canoniques. La périodicité de l'anomalie vraie assure que $\mathbf{p}(\nu = 0°) = \mathbf{p}(\nu = 360°)$~: une orbite complète ramène le satellite à son point de départ. Ce test est effectué pour une configuration générale ($i = 55°$, $\Omega = 120°$) afin d'éviter tout cas dégénéré.
+
+La symétrie du RAAN assure que $\mathbf{p}(\Omega) = \mathbf{p}(\Omega + 360°)$~: une rotation d'un tour complet du plan orbital est équivalente à l'identité.
+
+L'invariance du plan équatorial est vérifiée pour huit valeurs d'anomalie vraie espac\'{e}es de $45°$~: pour $i = 0°$, la coordonnée $y$ doit être nulle quelle que soit la position sur l'orbite, car le plan orbital coïncide avec le plan équatorial.
+
+Enfin, la distinction entre plans orbitaux de RAAN différents est vérifiée en s'assurant que $\mathbf{p}(\Omega = 0°),\, \mathbf{p}(\Omega = 90°)$ et $\mathbf{p}(\Omega = 180°)$ sont trois positions géométriquement distinctes (distance supérieure à $0.01\,\text{u}$). La cohérence de l'altitude est vérifiée en s'assurant que $\|\mathbf{p}(h = 800)\| > \|\mathbf{p}(h = 550)\|$ et que la valeur exacte du rayon à $800\,\text{km}$ est $(R_\oplus + 800) \cdot S$.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Bloc 3 — Paramètres Walker Delta (23 tests)}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\subsection{Définition de la constellation Walker Delta}
+
+Une constellation Walker Delta est définie par la notation $T/P/F$, où $T$ est le nombre total de satellites, $P$ le nombre de plans orbitaux, et $F$ le facteur de phase. Les satellites sont distribués uniformément dans les $P$ plans, et les plans eux-mêmes sont uniformément répartis en ascension droite autour de l'équateur. La règle d'assignation est~:
+
+\begin{align}
+    \Omega_p &= p \cdot \frac{360°}{P} \label{eq:raan} \\
+    \nu_{s,p} &= s \cdot \frac{360°}{T/P} + p \cdot F \cdot \frac{360°}{T} \label{eq:ta}
+\end{align}
+
+Le terme de phasage dans l'équation~\eqref{eq:ta} décale l'anomalie vraie du premier satellite de chaque plan par rapport au précédent, créant un motif en spirale qui optimise la couverture globale.
+
+\subsection{Vérification de la configuration 8/2/0}
+
+La configuration $8/2/0$ (8 satellites, 2 plans, phase nulle) est la plus simple à analyser manuellement. Le plan 0 a un RAAN de $0°$ et le plan 1 un RAAN de $180°$~: les deux plans sont perpendiculaires. Avec $T/P = 4$ satellites par plan et $F = 0$, les quatre satellites de chaque plan sont espacés de $90°$ en anomalie vraie.
+
+Le bloc vérifie que les RAAN calculés par \texttt{walkerRaan(p, numPlanes)} correspondent exactement aux valeurs analytiques. Il vérifie ensuite que l'espacement angulaire entre satellites consécutifs du plan 0 est bien de $90°$~: cet angle est calculé par $\arccos(\mathbf{p}_0 \cdot \mathbf{p}_1 / r^2)$, où le produit scalaire des vecteurs normalisés donne le cosinus de l'angle entre les deux positions. La tolérance appliquée est de $0.01°$. La régularité de l'anneau est confirmée en vérifiant que les trois distances consécutives $d_{01} = d_{12} = d_{23}$ sont égales à $10^{-9}$ unité près.
+
+\subsection{Vérification de la configuration 24/6/1}
+
+La configuration $24/6/1$ introduit un facteur de phase non nul. Les six plans ont des RAAN espacés de $60°$~: $0°, 60°, 120°, 180°, 240°, 300°$. Ces six valeurs sont vérifiées à $10^{-9}$ degré près. Le phasage $F = 1$ décale les anomalies vraies du premier satellite de chaque plan de $F \cdot 360° / T = 1 \cdot 360° / 24 = 15°$ par rapport au plan précédent. Le test vérifie que les anomalies vraies du premier satellite des plans 0, 1 et 2 sont respectivement $0°$, $15°$ et $30°$.
+
+\subsection{Invariance du rayon pour tous les satellites}
+
+Un test de robustesse vérifie que tous les satellites de la constellation $8/2/0$ se trouvent à la même distance du centre de la Terre, quel que soit leur plan ou leur numéro au sein du plan. Les 8 satellites sont générés avec leurs paramètres Walker corrects, et la norme de chaque vecteur position est comparée à $r = (R_\oplus + 550) \cdot S$ avec une tolérance de $10^{-9}$.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Bloc 4 — Positions des stations au sol (31 tests)}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\subsection{Modèle de conversion géographique}
+
+Les stations au sol sont définies par leur latitude $\phi$ et leur longitude $\lambda$ en degrés. La fonction \texttt{cartesianToLatLon(x, y, z)} réalise la conversion inverse~: à partir d'une position 3D en unités Three.js, elle retourne la latitude et la longitude géographiques. La stratégie de test consiste à générer des positions 3D attendues à partir de la formule directe (privée dans \texttt{groundStations.js}, mais recalculée dans le test), puis à vérifier que la conversion inverse retrouve les paramètres d'entrée.
+
+La formule directe de conversion lat/lon vers 3D est la suivante~:
+
+\begin{align}
+    \varphi &= (90° - \phi) \cdot \pi/180 \\
+    \theta &= (\lambda + 180°) \cdot \pi/180 \\
+    x &= -r \sin(\varphi)\cos(\theta) \\
+    y &= r \cos(\varphi) \\
+    z &= r \sin(\varphi)\sin(\theta)
+\end{align}
+
+où $r = (R_\oplus + h) \cdot S$. Cette formule est recalculée dans le test via la fonction locale \texttt{latLon\_to\_3D()}, qui reproduit fidèlement le code de \texttt{groundStations.js}.
+
+\subsection{Cas de test géographiques}
+
+Douze points géographiques représentatifs sont testés, couvrant des situations variées~: l'intersection de l'équateur et du méridien de Greenwich (cas dégénéré simple), Paris ($48.85°N,\, 2.35°E$), New York ($40.71°N,\, 74.01°W$), Sydney ($33.87°S,\, 151.21°E$), Tokyo ($35.68°N,\, 139.69°E$), Nairobi ($1.29°S,\, 36.82°E$), le pôle Nord ($90°N$), le pôle Sud ($90°S$), et quatre points sur l'équateur aux longitudes $-180°$, $-90°$, $+90°$ et $+180°$.
+
+Pour chaque point, la latitude retrouvée est vérifiée à $0.01°$ près. La longitude est également vérifiée à $0.01°$ près, à l'exception des pôles où la longitude est géographiquement indéfinie. Un soin particulier est apporté à la normalisation~: les valeurs $-180°$ et $+180°$ représentent la même longitude (la ligne de changement de date), et le test corrige le résidu en ajoutant ou soustrayant $360°$ si l'écart brut dépasse $180°$.
+
+\subsection{Invariant radial et cohérence d'altitude}
+
+Pour les huit premiers points de test, un invariant supplémentaire est vérifié~: la distance de la position 3D au centre de la Terre doit être exactement $R_\oplus = 6371\,\text{km}$. Ceci est calculé comme $\sqrt{(x/S)^2 + (y/S)^2 + (z/S)^2}$ et comparé à $R_\oplus$ avec une tolérance de $10^{-6}\,\text{km}$.
+
+La cohérence de l'altitude est vérifiée par un test supplémentaire~: la position de Paris à $550\,\text{km}$ d'altitude doit être plus distante du centre de la Terre que la position de Paris à la surface, et la différence exacte doit être de $550\,\text{km}$.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Bloc 5 — Distance GS-satellite (6 tests)}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\subsection{Formule de calcul}
+
+La fonction \texttt{calculateGSToSatelliteDistance(stationPosition, satellitePosition)} calcule la distance euclidienne en kilomètres entre deux positions en unités Three.js~:
+
+\begin{equation}
+    d = \sqrt{\left(\frac{x_1 - x_2}{S}\right)^2 + \left(\frac{y_1 - y_2}{S}\right)^2 + \left(\frac{z_1 - z_2}{S}\right)^2}
+\end{equation}
+
+La division par $S = 0.001$ réalise la conversion d'unités Three.js en kilomètres.
+
+\subsection{Cas de test}
+
+Le cas le plus simple est celui d'un satellite directement au-dessus d'une station au sol~: en plaçant la station à $(R_\oplus \cdot S, 0, 0)$ et le satellite à $((R_\oplus + 550) \cdot S, 0, 0)$, la distance attendue est exactement $550\,\text{km}$. Ce cas vérifie à la fois la formule et la cohérence de l'échelle.
+
+La distance nulle est vérifiée en passant deux fois la même position~: le résultat doit être $0$ avec une tolérance de $10^{-6}\,\text{km}$, ce qui confirme l'absence d'erreur numérique intrinsèque.
+
+Un cas 3D connu est construit en plaçant la station à $(R_\oplus \cdot S, 0, 0)$ et le satellite à $(0, (R_\oplus + 550) \cdot S, 0)$~: les deux positions sont perpendiculaires vues du centre de la Terre, et la distance attendue est $\sqrt{R_\oplus^2 + (R_\oplus + 550)^2}\,\text{km}$.
+
+Un test supplémentaire utilise deux positions générées par \texttt{getSatellitePosition()}~: deux satellites équatoriaux séparés de $90°$ en anomalie vraie ont une distance euclidienne de $r\sqrt{2}$, ce qui est vérifié ici en combinant les blocs~2 et~5. La symétrie $d(A \to B) = d(B \to A)$ est également vérifiée. Enfin, la fonction \texttt{calculateDistance()} de \texttt{utils/raytracing.js} est testée de manière analogue pour les mêmes cas.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Bloc 6 — Visibilité par ligne de vue (6 tests)}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\subsection{Algorithme de vérification}
+
+La fonction \texttt{checkLineOfSight(sat1, sat2)} détermine si deux objets disposant d'une propriété \texttt{position} (vecteur Three.js) ont une ligne de vue directe. Elle implémente une chaîne de vérifications en cascade. Premièrement, si la distance entre les deux positions dépasse $d_\text{max} = \texttt{MAX\_ISL\_DISTANCE} \cdot S = 5\,\text{u}$ (correspondant à $5000\,\text{km}$), la fonction retourne immédiatement \texttt{false}~: la distance maximale de communication ISL est une contrainte physique dure. Deuxièmement, si le point médian entre les deux positions se trouve à plus de $1.1 \cdot R_\oplus \cdot S$ du centre et que le produit scalaire des deux vecteurs est positif (même hémisphère), la ligne de vue est considérée libre sans raytracing complet. Sinon, un raytracing complet est effectué~: un rayon partant de la première position vers la seconde est testé pour intersection avec une sphère de rayon $R_\oplus \cdot S$ centrée à l'origine~; si le rayon intersecte la sphère, il y a occlusion terrestre.
+
+\subsection{Tests de visibilité}
+
+Le premier test vérifie le rejet par distance~: deux satellites fictifs placés à $5500\,\text{km}$ l'un de l'autre ($10\%$ au-delà de \texttt{MAX\_ISL\_DISTANCE}) ne doivent pas avoir de ligne de vue, quelle que soit la géométrie.
+
+Le deuxième test vérifie la visibilité normale~: deux satellites équatoriaux séparés de $20°$ en anomalie vraie (distance $\approx 2403\,\text{km}$, inférieure à $5000\,\text{km}$) et placés du même côté de la Terre doivent avoir une ligne de vue directe.
+
+Les troisième et quatrième tests vérifient l'absence de visibilité pour des configurations où la Terre est entre les deux satellites. Dans ces cas, la contrainte de distance ($d > d_\text{max}$) est de toute façon violée pour des orbites réalistes~: le test valide que la fonction retourne \texttt{false} pour la raison correcte, qu'elle soit la distance ou l'occlusion.
+
+Un cinquième test vérifie que la fonction peut être appelée avec une position de station au sol en guise de premier argument~: on place une station à Paris et un satellite en orbite, puis on vérifie que \texttt{checkLineOfSight} retourne bien un booléen sans erreur d'exécution. Ce test de robustesse est important car la fonction est appelée dans ce contexte dans \texttt{groundStations.js}.
+
+Le sixième test vérifie la réflexivité~: $\text{LOS}(A, B) = \text{LOS}(B, A)$, propriété qui doit être vraie par symétrie de la géométrie et qui garantit l'absence d'asymétrie dans l'implémentation du raycasting.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Bloc 7 — Géométrie de l'angle d'élévation (5 tests)}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\subsection{Contexte et limitation}
+
+L'angle d'élévation d'un satellite vu depuis une station au sol est défini comme l'angle entre la direction vers le satellite et le plan horizontal local. Il est calculé dans \texttt{groundStations.js} par la fonction \texttt{calculateElevation()}, qui est cependant une fonction \textbf{privée} (non exportée). Il en va de même pour \texttt{findBestSatellite()}, qui utilise \texttt{calculateElevation} pour sélectionner le meilleur satellite à tracker.
+
+Cette limitation d'accès est une contrainte importante~: les fonctions privées JavaScript (au sens de non exportées dans un module ES6) ne peuvent pas être importées dans les tests sans modifier le code source. Pour pallier cette contrainte, le bloc~7 recalcule la formule d'élévation dans le fichier de test via la fonction locale \texttt{localElevation()}, qui est une reproduction fidèle de \texttt{calculateElevation()}~:
+
+\begin{equation}
+    \text{élév} = \arccos\!\left(\hat{u}_\text{sat} \cdot (-\hat{r}_\text{GS})\right) - 90°
+\end{equation}
+
+où $\hat{u}_\text{sat}$ est le vecteur unitaire de la station vers le satellite, et $\hat{r}_\text{GS}$ est le vecteur unitaire de la station vers le centre de la Terre. Cette formulation mesure l'angle entre la direction vers le satellite et la verticale locale ($-\hat{r}_\text{GS}$ pointe vers le bas), soustrait $90°$ pour ramener la référence au plan horizontal.
+
+\subsection{Cas de test}
+
+Le cas le plus simple est celui du satellite directement au-dessus de la station (au zénith)~: en plaçant la station à $(R_\oplus \cdot S, 0, 0)$ et le satellite à $((R_\oplus + 550) \cdot S, 0, 0)$, le vecteur vers le satellite est $(1, 0, 0)$ et la verticale locale est $(-1, 0, 0)$. Le produit scalaire vaut $-1$, l'arccosinus vaut $180°$, et après soustraction de $90°$ on obtient une élévation de $90°$. La tolérance est de $0.001°$.
+
+Le cas horizon correspond à un satellite placé perpendiculairement à la verticale locale~: la station est à $(R_\oplus \cdot S, 0, 0)$ et le satellite à $(R_\oplus \cdot S, (R_\oplus + 550) \cdot S, 0)$. Le vecteur vers le satellite est purement vertical dans le repère local, le produit scalaire avec $(-\hat{r}_\text{GS})$ est nul, l'arccosinus vaut $90°$, et l'élévation est $0°$.
+
+Trois tests supplémentaires vérifient des propriétés qualitatives~: un satellite partiellement derrière l'horizon géométrique doit avoir une élévation inférieure à $5°$, deux satellites symétriques par rapport au zénith doivent avoir la même élévation (à $0.001°$ près), et un satellite plus proche du zénith doit avoir une élévation strictement plus grande qu'un satellite plus éloigné.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Bloc 8 — Topologie ISL (10 tests)}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\subsection{Génération des paires ISL}
+
+La classe \texttt{ISLMetrics} et sa méthode \texttt{generateISLPairs(numSats, numPlanes, phase)} génèrent la liste des paires de satellites reliés par des liens inter-satellites. Dans une constellation Walker, les liens sont de deux types~: les liens \emph{intra-plan} relient chaque satellite au suivant dans le même plan orbital (formant un anneau), et les liens \emph{inter-plan} relient des satellites de plans adjacents. Pour une constellation $T/P$~:
+
+\begin{itemize}
+    \item Nombre de liens intra-plan~: $T$ (un anneau de $T/P$ satellites par plan, pour $P$ plans)
+    \item Nombre de liens inter-plan~: $T$ (un lien par satellite vers le plan adjacent)
+    \item Total~: $2T$
+\end{itemize}
+
+Cependant, pour éviter les doublons, chaque lien n'est compté qu'une fois selon la convention $\text{satA} < \text{satB}$, ce qui réduit le total à $T/P \cdot P + T/P \cdot P / 2$... Le décompte exact dépend de la convention adoptée dans l'implémentation. Le test vérifie les valeurs obtenues empiriquement pour les configurations de référence.
+
+\subsection{Vérifications quantitatives}
+
+Pour la configuration $8/2$ (phase nulle), le test vérifie que le nombre total de liens est $12$, avec $8$ liens intra-plan et $4$ liens inter-plan. Pour la configuration $24/6$, le nombre total est $48$, avec $24$ liens de chaque type.
+
+\subsection{Propriétés structurelles}
+
+Pour la configuration $64/8$, trois propriétés structurelles sont vérifiées. L'absence de doublons assure que chaque paire $(\text{satA}, \text{satB})$ n'apparaît qu'une seule fois dans la liste~; cela est vérifié en construisant un ensemble des représentations sous forme de chaîne et en comparant sa taille à la longueur de la liste. L'ordre canonique assure que $\text{satA} < \text{satB}$ pour chaque lien~; cela garantit que la représentation est normalisée et qu'un même lien physique ne peut pas apparaître sous deux formes symétriques. La validité des identifiants assure que tous les indices de satellites appartiennent à $[0, 63]$~; une valeur hors plage indiquerait une erreur de calcul d'indice dans la génération.
+
+Enfin, la validité des types est vérifiée pour la configuration $24/6$~: chaque lien doit avoir un attribut \texttt{type} appartenant à l'ensemble $\{$\texttt{intra-plane}, \texttt{inter-plane}$\}$.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Toléances numériques}
+% ─────────────────────────────────────────────────────────────────────────────
+
+Les tolérances utilisées dans la suite sont choisies pour être à la fois strictes et réalistes compte tenu de la précision de l'arithmétique en virgule flottante double précision (IEEE 754). La tolérance sur les positions Three.js ($10^{-9}$\,u) correspond à environ $10^{-6}\,\text{m}$, ce qui est bien en dessous de tout bruit physique mais accessible à la précision double précision ($\approx 10^{-15}$ relatif). La tolérance sur les distances en kilomètres ($10^{-6}\,\text{km} = 1\,\text{mm}$) est appliquée aux calculs impliquant une ou deux opérations arithmétiques simples. La tolérance sur les angles géographiques ($0.01°\,\approx\,1.1\,\text{km}$ à l'équateur) est un compromis entre la précision souhaitée pour les tests de conversion et les éventuelles imprécisions trigonométriques. Enfin, la tolérance sur les angles d'élévation ($0.001°$) reflète la précision analytique d'un calcul direct sans itération.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Synthèse des tests}
+% ─────────────────────────────────────────────────────────────────────────────
+
+\begin{table}[h!]
+\centering
+\caption{Récapitulatif des 135 tests par bloc}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Bloc} & \textbf{Nb de tests} & \textbf{Fonctions testées} \\
+\midrule
+1 — Mécanique orbitale        & 7  & \texttt{calculateOrbitalPeriod}, \texttt{calculateOrbitalVelocity}, \texttt{calculateAngularVelocity} \\
+2 — Positions satellites      & 46 & \texttt{getSatellitePosition} \\
+3 — Walker Delta              & 23 & \texttt{getSatellitePosition} + formules analytiques \\
+4 — Positions GS              & 31 & \texttt{cartesianToLatLon} \\
+5 — Distance GS-satellite     & 6  & \texttt{calculateGSToSatelliteDistance}, \texttt{calculateDistance} \\
+6 — Visibilité LOS            & 6  & \texttt{checkLineOfSight} \\
+7 — Géométrie d'élévation     & 5  & \texttt{localElevation} (formule de \texttt{calculateElevation}) \\
+8 — Topologie ISL             & 10 & \texttt{ISLMetrics.generateISLPairs} \\
+\midrule
+\textbf{Total}                & \textbf{135} & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Les 135 tests couvrent les aspects fondamentaux de la simulation~: la fidélité de la mécanique képlérienne, la cohérence géométrique des positions orbitales, la correction des paramètres Walker Delta, la précision de la géolocalisation des stations au sol, la justesse des calculs de distance et de visibilité, et l'intégrité structurelle du graphe ISL. La limitation principale concerne les fonctions privées \texttt{calculateElevation} et \texttt{findBestSatellite}, dont la logique ne peut être testée qu'indirectement~; une refactorisation les exportant permettrait une couverture directe de la logique de handover.
+
+\end{document}

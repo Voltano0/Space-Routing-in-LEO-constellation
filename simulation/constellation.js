@@ -1,6 +1,7 @@
 import * as THREE from 'three';
-import { EARTH_RADIUS, SCALE, GM, PLANE_COLORS, LINK_COLORS } from '../constants.js';
+import { EARTH_RADIUS, SCALE, PLANE_COLORS, LINK_COLORS } from '../constants.js';
 import { checkLineOfSight } from '../utils/raytracing.js';
+import { calculateAngularVelocity, calculateOrbitalVelocity, calculateOrbitalPeriod } from '../utils/orbital-math.js';
 
 let satellites = [];
 let orbits = [];
@@ -14,29 +15,8 @@ export function clearSceneObjects(scene, objects) {
     objects.length = 0;
 }
 
-// Calculer la vitesse angulaire réaliste d'un satellite (rad/s)
-export function calculateAngularVelocity(altitude) {
-    const radius = EARTH_RADIUS + altitude; // km
-    // Vitesse angulaire ω = sqrt(GM/r³) en rad/s
-    const angularVelocity = Math.sqrt(GM / Math.pow(radius, 3));
-    return angularVelocity;
-}
-
-// Calculer la vitesse orbitale linéaire (km/s)
-export function calculateOrbitalVelocity(altitude) {
-    const radius = EARTH_RADIUS + altitude; // km
-    // v = sqrt(GM/r) en km/s
-    const velocity = Math.sqrt(GM / radius);
-    return velocity;
-}
-
-// Calculer la période orbitale (minutes)
-export function calculateOrbitalPeriod(altitude) {
-    const radius = EARTH_RADIUS + altitude; // km
-    // T = 2π * sqrt(r³/GM) en secondes
-    const period = 2 * Math.PI * Math.sqrt(Math.pow(radius, 3) / GM);
-    return period / 60; // Convertir en minutes
-}
+// Re-export des fonctions orbitales depuis utils/orbital-math.js
+export { calculateAngularVelocity, calculateOrbitalVelocity, calculateOrbitalPeriod };
 
 // Calculer la position d'un satellite en coordonnées cartésiennes
 export function getSatellitePosition(altitude, inclination, raan, trueAnomaly) {

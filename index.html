@@ -118,16 +118,6 @@
             color: white;
             font-size: 12px;
             backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        #info div {
-            margin-bottom: 5px;
-        }
-
-        .checkbox-group {
-            display: flex;
-            align-items: center;
             margin-bottom: 10px;
         }
 
@@ -778,6 +768,12 @@
         <div class="checkbox-group" id="include-gs-group" style="margin-bottom: 15px;">
             <input type="checkbox" id="include-ground-stations">
             <label for="include-ground-stations" style="font-size: 12px;">Inclure les Ground Stations</label>
+        </div>
+
+        <!-- Option période terrestre (visible seulement si GS incluses) -->
+        <div class="checkbox-group" id="ground-track-period-group" style="margin-bottom: 15px; display: none; margin-left: 20px;">
+            <input type="checkbox" id="use-ground-track-period">
+            <label for="use-ground-track-period" style="font-size: 11px; color: #aaa;">Période terrestre (~24h) pour GS</label>
         </div>
 
         <div class="metrics-info">

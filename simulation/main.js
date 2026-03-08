@@ -374,6 +374,9 @@ function setupMetricsControls() {
     // Éléments GS
     const includeGSGroup = document.getElementById('include-gs-group');
     const gsStatsPanel = document.getElementById('gs-stats-panel');
+    const groundTrackPeriodGroup = document.getElementById('ground-track-period-group');
+    const useGroundTrackPeriodCheckbox = document.getElementById('use-ground-track-period');
+    const includeGSCheckbox = document.getElementById('include-ground-stations');
 
     // Fonction pour mettre à jour la visibilité des options GS
     function updateGSOptionsVisibility() {
@@ -413,6 +416,15 @@ function setupMetricsControls() {
     // Gérer le changement de mode d'export ISL
     islExportMode.addEventListener('change', updateGSOptionsVisibility);
 
+    // Afficher/masquer l'option "période terrestre" quand GS est coché
+    if (includeGSCheckbox) {
+        includeGSCheckbox.addEventListener('change', () => {
+            if (groundTrackPeriodGroup) {
+                groundTrackPeriodGroup.style.display = includeGSCheckbox.checked ? 'flex' : 'none';
+            }
+        });
+    }
+
     // Initialiser la visibilité
     updateGSOptionsVisibility();
 
@@ -440,11 +452,13 @@ function setupMetricsControls() {
             const groundStations = getGroundStations();
 
             // Préparer les options GS
+            const useGroundTrack = useGroundTrackPeriodCheckbox?.checked || false;
             const gsOptions = {
                 includeGroundStations: includeGS && groundStations.length > 0,
                 groundStations: groundStations,
                 groundStationMeshes: getGroundStationMeshes(),
-                getTrackingState: getStationTrackingState
+                getTrackingState: getStationTrackingState,
+                useGroundTrackPeriod: useGroundTrack
             };
 
             // Vérifier si GS demandées mais pas de stations

@@ -215,43 +215,6 @@ def get_host_interfaces(host):
     return interfaces
 
 
-def generate_subnet(link_counter, base=10):
-    """
-    Génère un sous-réseau /30 unique pour un lien point-à-point
-
-    Args:
-        link_counter: Compteur de liens (pour générer des sous-réseaux uniques)
-        base: Octet de base pour l'adresse (default: 10)
-
-    Returns:
-        tuple: (ip_a, ip_b) avec le masque /30
-    """
-    # Calculer les octets du sous-réseau
-    subnet_base = base + (link_counter // 65536)
-    subnet_second = (link_counter // 256) % 256
-    subnet_third = link_counter % 256
-
-    ip_a = f'{subnet_base}.{subnet_second}.{subnet_third}.1/30'
-    ip_b = f'{subnet_base}.{subnet_second}.{subnet_third}.2/30'
-
-    return ip_a, ip_b
-
-
-def generate_gs_ip(gs_index):
-    """
-    Génère une IP pour une ground station
-
-    Les GS utilisent le préfixe 192.168.X.Y pour les différencier des satellites
-
-    Args:
-        gs_index: Index de la ground station
-
-    Returns:
-        str: Adresse IP avec masque
-    """
-    # 192.168.100.X pour les GS
-    return f'192.168.100.{gs_index + 1}/24'
-
 
 def find_interface_for_link(host, peer_host):
     """

@@ -21,6 +21,8 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from typing import Optional
 
+from emulation_utils import compute_link_utilization, compute_convergence_time, compute_packet_loss
+
 
 # ---------------------------------------------------------------------------
 # Dataclasses
@@ -83,6 +85,21 @@ class LSPFloodingMeasurement:
 
 
 @dataclass
+class LinkUtilizationSnapshot:
+    """Measures link utilization on a satellite interface."""
+    timestamp: float           # simulation time
+    link_id: str               # ex: "12.3" (sat12, inter-plane link #1)
+    sat_id: int
+    peer_sat: object           # int for ISL, str (e.g. "gs0") for GS links
+    link_type: str             # 'intra-plane', 'inter-plane', 'gs'
+    tx_bytes: int              # bytes transmitted since last snapshot
+    rx_bytes: int              # bytes received since last snapshot
+    tx_rate_mbps: float        # TX rate in Mbps
+    rx_rate_mbps: float        # RX rate in Mbps
+    utilization_pct: float     # max(tx,rx) / bandwidth * 100
+
+
+@dataclass
 class MetricsSummary:
     """Aggregated summary of all collected metrics."""
     total_handovers: int = 0
@@ -96,6 +113,9 @@ class MetricsSummary:
     avg_spf_duration_ms: float = 0.0
     total_lsp_measurements: int = 0
     avg_lsp_propagation_s: float = 0.0
+    avg_utilization_pct: float = 0.0
+    max_utilization_pct: float = 0.0
+    most_loaded_links: list = field(default_factory=list)  # top 5 [{link_id, avg_pct}]
     collection_duration_s: float = 0.0
 
 
@@ -124,11 +144,12 @@ class ISISMetricsCollector:
     - Exports results to JSON.
     """
 
-    def __init__(self, net, sat_hosts, gs_hosts, gs_manager):
+    def __init__(self, net, sat_hosts, gs_hosts, gs_manager, link_map=None):
         self.net = net
         self.sat_hosts = sat_hosts    # {sat_id: host}
         self.gs_hosts = gs_hosts      # {gs_id: host}
         self.gs_manager = gs_manager
+        self.link_map = link_map or {}  # {sat_id: {label: {peer, intf, type, bandwidth_mbps}}}
 
         # Collected events
         self.convergence_events: list[ISISConvergenceEvent] = []
@@ -136,6 +157,7 @@ class ISISMetricsCollector:
         self.service_interruptions: list[ServiceInterruption] = []
         self.spf_events: list[SPFEvent] = []
         self.lsp_measurements: list[LSPFloodingMeasurement] = []
+        self.link_utilization_snapshots: list[LinkUtilizationSnapshot] = []
 
         # State
         self._running = False
@@ -157,6 +179,10 @@ class ISISMetricsCollector:
 
         # Simulation time reference (will be set externally)
         self.get_sim_time = lambda: 0.0
+
+        # Link utilization tracking
+        self._prev_bytes = {}   # {intf_name: {'tx': int, 'rx': int, 'time': float}}
+        self._gs_bandwidth_mbps = 100  # GS link bandwidth
 
         # Debug: track poll stats
         self._poll_count = 0
@@ -200,6 +226,7 @@ class ISISMetricsCollector:
         print(f"*** SPF events collected: {len(self.spf_events)}", flush=True)
         print(f"*** LSP measurements collected: {len(self.lsp_measurements)}", flush=True)
         print(f"*** Convergence events collected: {len(self.convergence_events)}", flush=True)
+        print(f"*** Link utilization snapshots: {len(self.link_utilization_snapshots)}", flush=True)
 
     def handover_callback(self, gs_id, from_sat, to_sat, latency_ms):
         """
@@ -249,6 +276,7 @@ class ISISMetricsCollector:
         print(f"*** Service interruptions: {len(self.service_interruptions)}", flush=True)
         print(f"*** SPF events:          {len(self.spf_events)}", flush=True)
         print(f"*** LSP measurements:    {len(self.lsp_measurements)}", flush=True)
+        print(f"*** Link util snapshots: {len(self.link_utilization_snapshots)}", flush=True)
 
     def print_summary(self):
         """Print a human-readable summary of collected metrics."""
@@ -287,6 +315,17 @@ class ISISMetricsCollector:
         if summary.total_lsp_measurements > 0:
             print(f"  Avg propagation: {summary.avg_lsp_propagation_s:.3f}s", flush=True)
 
+        print("", flush=True)
+        print("-- Link Utilization --", flush=True)
+        print(f"  Snapshots: {len(self.link_utilization_snapshots)}", flush=True)
+        if summary.avg_utilization_pct > 0:
+            print(f"  Avg utilization: {summary.avg_utilization_pct:.2f}%", flush=True)
+            print(f"  Max utilization: {summary.max_utilization_pct:.2f}%", flush=True)
+            if summary.most_loaded_links:
+                print(f"  Top loaded links:", flush=True)
+                for entry in summary.most_loaded_links:
+                    print(f"    {entry['link_id']}: {entry['avg_pct']:.2f}%", flush=True)
+
         print("=" * 60, flush=True)
 
     def export_json(self, filepath=None):
@@ -307,6 +346,7 @@ class ISISMetricsCollector:
             "service_interruptions": [asdict(e) for e in self.service_interruptions],
             "spf_events": [asdict(e) for e in self.spf_events],
             "lsp_measurements": [asdict(e) for e in self.lsp_measurements],
+            "link_utilization": [asdict(e) for e in self.link_utilization_snapshots],
         }
 
         with open(filepath, "w") as f:
@@ -429,7 +469,6 @@ class ISISMetricsCollector:
         spf_candidates = [
             "show isis spf-log",
             "show isis spf-log level-2",
-            "show isis summary",
         ]
         for cmd in spf_candidates:
             print(f"*** [METRICS DIAG] Trying '{cmd}'...", flush=True)
@@ -443,9 +482,16 @@ class ISISMetricsCollector:
             print(f"    Parsed SPF entries: {len(parsed)}", flush=True)
             if parsed:
                 print(f"    First: {parsed[0]}", flush=True)
-            self._spf_cmd = cmd
-            print(f"    -> Using '{cmd}' for SPF collection.", flush=True)
-            break
+                self._spf_cmd = cmd
+                print(f"    -> Using '{cmd}' for SPF collection.", flush=True)
+                break
+            # No entries yet but command exists — accept it if output
+            # contains SPF-related headers (data will appear after topo changes)
+            if 'Duration' in spf_output or 'SPF' in spf_output:
+                self._spf_cmd = cmd
+                print(f"    -> Using '{cmd}' (no entries yet, but format detected).", flush=True)
+                break
+            print(f"    Command exists but no SPF data or headers found.", flush=True)
 
         if not self._spf_cmd:
             print("*** [METRICS DIAG] WARNING: No SPF log command available. SPF collection disabled.", flush=True)
@@ -473,6 +519,7 @@ class ISISMetricsCollector:
             try:
                 self._collect_spf_logs()
                 self._collect_lsp_flooding()
+                self._collect_link_utilization()
             except Exception as e:
                 print(f"*** Metrics poll error (cycle {self._poll_count}): {e}", flush=True)
                 import traceback
@@ -483,7 +530,7 @@ class ISISMetricsCollector:
                 print(
                     f"*** [METRICS] Poll #{self._poll_count}: "
                     f"SPF={len(self.spf_events)} LSP={len(self.lsp_measurements)} "
-                    f"HO={len(self.convergence_events)}",
+                    f"HO={len(self.convergence_events)} LU={len(self.link_utilization_snapshots)}",
                     flush=True,
                 )
 
@@ -717,13 +764,346 @@ class ISISMetricsCollector:
         return lsps
 
     # ------------------------------------------------------------------
+    # Link utilization measurement
+    # ------------------------------------------------------------------
+
+    def _parse_proc_net_dev(self, output):
+        """
+        Parse /proc/net/dev output.
+        Returns {intf_name: {'rx_bytes': int, 'tx_bytes': int}}.
+
+        Format:
+        Inter-|   Receive                                                |  Transmit
+         face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets ...
+          eth0: 1234567  1234  0  0  0  0  0  0  7654321  1234  0  0  0  0  0  0
+        """
+        result = {}
+        for line in output.strip().split('\n'):
+            if ':' not in line or line.strip().startswith('Inter') or line.strip().startswith('face'):
+                continue
+            parts = line.split(':')
+            if len(parts) < 2:
+                continue
+            intf_name = parts[0].strip()
+            fields = parts[1].split()
+            if len(fields) >= 9:
+                result[intf_name] = {
+                    'rx_bytes': int(fields[0]),
+                    'tx_bytes': int(fields[8]),
+                }
+        return result
+
+    def _collect_link_utilization(self):
+        """
+        Collect link utilization for all satellites by reading /proc/net/dev
+        once per host. Compute delta bytes, rate, and utilization percentage.
+        """
+        if not self.link_map:
+            return
+
+        sim_time = self.get_sim_time()
+        now = time.time()
+
+        for sat_id, links in self.link_map.items():
+            host = self.sat_hosts.get(sat_id)
+            if not host:
+                continue
+
+            # Read all interfaces in one command
+            try:
+                raw = host.cmd('cat /proc/net/dev')
+                intf_stats = self._parse_proc_net_dev(raw)
+            except Exception:
+                continue
+
+            for label, link_info in links.items():
+                intf_name = link_info['intf']
+                if intf_name not in intf_stats:
+                    continue
+
+                current = intf_stats[intf_name]
+                prev = self._prev_bytes.get(intf_name)
+
+                if prev is None:
+                    # First reading: store baseline, no snapshot
+                    self._prev_bytes[intf_name] = {
+                        'tx': current['tx_bytes'],
+                        'rx': current['rx_bytes'],
+                        'time': now,
+                    }
+                    continue
+
+                dt = now - prev['time']
+                if dt <= 0:
+                    continue
+
+                delta_tx = current['tx_bytes'] - prev['tx']
+                delta_rx = current['rx_bytes'] - prev['rx']
+
+                # Handle counter wrap (unlikely but safe)
+                if delta_tx < 0:
+                    delta_tx = 0
+                if delta_rx < 0:
+                    delta_rx = 0
+
+                bandwidth = link_info['bandwidth_mbps']
+                tx_rate_mbps, rx_rate_mbps, utilization = compute_link_utilization(
+                    delta_tx, delta_rx, dt, bandwidth
+                )
+
+                snapshot = LinkUtilizationSnapshot(
+                    timestamp=sim_time,
+                    link_id=label,
+                    sat_id=sat_id,
+                    peer_sat=link_info['peer'],
+                    link_type=link_info['type'],
+                    tx_bytes=delta_tx,
+                    rx_bytes=delta_rx,
+                    tx_rate_mbps=round(tx_rate_mbps, 4),
+                    rx_rate_mbps=round(rx_rate_mbps, 4),
+                    utilization_pct=round(utilization, 2),
+                )
+                with self._lock:
+                    self.link_utilization_snapshots.append(snapshot)
+
+                # Update baseline
+                self._prev_bytes[intf_name] = {
+                    'tx': current['tx_bytes'],
+                    'rx': current['rx_bytes'],
+                    'time': now,
+                }
+
+        # Also collect GS link utilization (label .5)
+        self._collect_gs_link_utilization(sim_time, now)
+
+    def _collect_gs_link_utilization(self, sim_time, now):
+        """Collect utilization for active GS<->satellite links (label x.5)."""
+        active_links = self.gs_manager.active_links
+        for gs_id, link_info in active_links.items():
+            sat_id = link_info['sat_id']
+            intf_sat = link_info['intf_sat']
+
+            host = self.sat_hosts.get(sat_id)
+            if not host:
+                continue
+
+            try:
+                raw = host.cmd('cat /proc/net/dev')
+                intf_stats = self._parse_proc_net_dev(raw)
+            except Exception:
+                continue
+
+            if intf_sat not in intf_stats:
+                continue
+
+            current = intf_stats[intf_sat]
+            prev = self._prev_bytes.get(intf_sat)
+
+            if prev is None:
+                self._prev_bytes[intf_sat] = {
+                    'tx': current['tx_bytes'],
+                    'rx': current['rx_bytes'],
+                    'time': now,
+                }
+                continue
+
+            dt = now - prev['time']
+            if dt <= 0:
+                continue
+
+            delta_tx = max(0, current['tx_bytes'] - prev['tx'])
+            delta_rx = max(0, current['rx_bytes'] - prev['rx'])
+
+            bandwidth = self._gs_bandwidth_mbps
+            tx_rate_mbps, rx_rate_mbps, utilization = compute_link_utilization(
+                delta_tx, delta_rx, dt, bandwidth
+            )
+
+            label = f"{sat_id}.5"
+            snapshot = LinkUtilizationSnapshot(
+                timestamp=sim_time,
+                link_id=label,
+                sat_id=sat_id,
+                peer_sat=gs_id,
+                link_type='gs',
+                tx_bytes=delta_tx,
+                rx_bytes=delta_rx,
+                tx_rate_mbps=round(tx_rate_mbps, 4),
+                rx_rate_mbps=round(rx_rate_mbps, 4),
+                utilization_pct=round(utilization, 2),
+            )
+            with self._lock:
+                self.link_utilization_snapshots.append(snapshot)
+
+            self._prev_bytes[intf_sat] = {
+                'tx': current['tx_bytes'],
+                'rx': current['rx_bytes'],
+                'time': now,
+            }
+
+    # ------------------------------------------------------------------
     # Handover measurement thread
     # ------------------------------------------------------------------
+
+    def _check_adjacency_up(self, host, host_name, debug_polls, poll_num):
+        """
+        Check if ISIS adjacency is Up on a host.
+        Returns True if at least one adjacency is in 'Up' state.
+        Logs raw output for first few polls for debugging.
+        """
+        try:
+            adj_output = vtysh_cmd(host, "show isis neighbor")
+            # Debug: log first few polls to see what FRR returns
+            if poll_num <= debug_polls:
+                trimmed = adj_output.strip().replace('\n', ' | ')[:200]
+                print(f"    [DEBUG adj {host_name} #{poll_num}] {trimmed}", flush=True)
+
+            if not adj_output or not adj_output.strip():
+                return False
+
+            # Check for errors
+            lower = adj_output.lower()
+            if 'failed' in lower or 'error' in lower or 'not found' in lower:
+                return False
+
+            # FRR shows adjacency state as "Up", check case-insensitively
+            # Also handle: "Up", "UP", "up"
+            # Typical line: "sat42  gs0-eth0  2  Up  28  ca02..."
+            for line in adj_output.split('\n'):
+                # Skip header lines
+                stripped = line.strip()
+                if not stripped or stripped.startswith('Area') or stripped.startswith('System'):
+                    continue
+                # Match state column — look for "Up" as a word
+                if re.search(r'\bUp\b', line, re.IGNORECASE):
+                    return True
+
+            return False
+        except Exception:
+            return False
+
+    def _check_isis_routes(self, host, host_name, debug_polls, poll_num,
+                           expected_subnet=None, check_connected=False):
+        """
+        Check if ISIS routes are present on a host.
+        Tries multiple methods in order:
+          1. vtysh 'show ip route isis'       (FRR filtered view)
+          2. vtysh 'show ip route'            (full table, grep for ISIS)
+          3. 'ip route show proto isis'       (kernel table, no vtysh needed)
+          4. 'ip route' + grep proto isis/187 (kernel fallback)
+          5. (if check_connected) 'show ip route' for connected subnet
+        If expected_subnet is set (e.g. "192.168."), only match routes containing that prefix.
+        check_connected: also accept connected routes matching expected_subnet
+                         (for satellite side where GS subnet is directly connected).
+        Returns True if at least one ISIS-learned route is found.
+        """
+
+        def _has_route(text):
+            """Check if text contains an ISIS route (optionally matching expected_subnet)."""
+            for line in text.split('\n'):
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                if expected_subnet:
+                    if expected_subnet in stripped and re.search(r'\d+\.\d+\.\d+\.\d+', stripped):
+                        return True
+                else:
+                    if re.search(r'\d+\.\d+\.\d+\.\d+', stripped):
+                        return True
+            return False
+
+        # --- Method 1: show ip route isis ---
+        try:
+            route_output = vtysh_cmd(host, "show ip route isis")
+            if poll_num <= debug_polls:
+                trimmed = route_output.strip().replace('\n', ' | ')[:300]
+                print(f"    [DEBUG route-m1 {host_name} #{poll_num}] {trimmed}", flush=True)
+
+            if route_output and route_output.strip():
+                lower = route_output.lower()
+                if 'failed' not in lower and 'error' not in lower and 'unknown' not in lower:
+                    # FRR formats: "I>* 10.0.0.0/30", "I L2 10.0.0.0", "I  10.0.0.0"
+                    if _has_route(route_output):
+                        return True
+        except Exception:
+            pass
+
+        # --- Method 2: show ip route (full table, filter ISIS lines) ---
+        try:
+            full_output = vtysh_cmd(host, "show ip route")
+            if poll_num <= debug_polls:
+                isis_lines = [l.strip() for l in full_output.split('\n')
+                              if l.strip() and re.match(r'\s*[Ii][>* ]', l)]
+                print(f"    [DEBUG route-m2 {host_name} #{poll_num}] ISIS lines ({len(isis_lines)}): {isis_lines[:3]}", flush=True)
+
+            if full_output and full_output.strip():
+                isis_text = '\n'.join(
+                    l for l in full_output.split('\n')
+                    if l.strip() and l.strip()[0] in ('I', 'i')
+                    and not l.strip().startswith('I -')  # skip legend "I - IS-IS"
+                )
+                if isis_text and _has_route(isis_text):
+                    return True
+
+                # Method 2b: for satellite side, check if GS subnet is connected
+                # (satellite has the GS link as a directly connected route)
+                if check_connected and expected_subnet and full_output:
+                    connected_lines = '\n'.join(
+                        l for l in full_output.split('\n')
+                        if l.strip() and l.strip()[0] in ('C', 'c')
+                    )
+                    if connected_lines and expected_subnet in connected_lines:
+                        if poll_num <= debug_polls:
+                            print(f"    [DEBUG route-m2b {host_name} #{poll_num}] "
+                                  f"GS subnet found as CONNECTED route", flush=True)
+                        return True
+        except Exception:
+            pass
+
+        # --- Method 3: kernel routing table (no FRR/vtysh dependency) ---
+        try:
+            kern_output = host.cmd('ip route show proto isis 2>/dev/null')
+            if poll_num <= debug_polls:
+                trimmed = kern_output.strip().replace('\n', ' | ')[:200]
+                print(f"    [DEBUG route-m3 {host_name} #{poll_num}] {trimmed}", flush=True)
+
+            if kern_output and kern_output.strip() and _has_route(kern_output):
+                return True
+        except Exception:
+            pass
+
+        # --- Method 4: kernel routing table, grep proto isis/187 ---
+        try:
+            kern_all = host.cmd('ip route')
+            isis_kern_lines = [l for l in kern_all.strip().split('\n')
+                               if 'proto isis' in l or 'proto 187' in l]
+            if poll_num <= debug_polls:
+                print(f"    [DEBUG route-m4 {host_name} #{poll_num}] proto isis lines: {len(isis_kern_lines)}", flush=True)
+
+            if isis_kern_lines and _has_route('\n'.join(isis_kern_lines)):
+                return True
+
+            # Method 4b: for satellite side, check connected routes in kernel
+            if check_connected and expected_subnet:
+                connected_lines = [l for l in kern_all.strip().split('\n')
+                                   if expected_subnet in l and 'proto kernel' in l]
+                if connected_lines:
+                    if poll_num <= debug_polls:
+                        print(f"    [DEBUG route-m4b {host_name} #{poll_num}] "
+                              f"GS subnet found as kernel connected", flush=True)
+                    return True
+        except Exception:
+            pass
+
+        return False
 
     def _measure_handover(self, gs_id, from_sat, to_sat, sim_time):
         """
         Dedicated thread to measure convergence during a handover.
-        Runs continuous pings and polls adjacency/routes.
+        Runs pings in background and polls adjacency/routes separately.
+
+        This callback fires BEFORE disconnect. We wait for the handover
+        to complete (adjacency goes down then back up to new sat).
         """
         gs_host = self.gs_hosts.get(gs_id)
         if not gs_host:
@@ -737,8 +1117,8 @@ class ISISMetricsCollector:
 
         handover_wall_time = time.time()
         timeout = 30.0
-        ping_interval = 0.1
         adj_poll_interval = 0.5
+        debug_polls = 10  # Log raw output for first N polls
 
         # Ping tracking
         pings_sent = 0
@@ -746,69 +1126,100 @@ class ISISMetricsCollector:
         last_ping_ok_time = handover_wall_time
         first_ping_ok_after = None
 
-        # Adjacency/route tracking
+        # Adjacency/route tracking — we need to see adjacency go DOWN then UP
+        saw_adjacency_down = False
         adjacency_up_time = None
         route_present_time = None
 
-        # Track the last adjacency/route poll
-        last_adj_poll = 0
+        # Target satellite host (check its side too if GS vtysh fails)
+        to_sat_host = self.sat_hosts.get(to_sat)
 
+        poll_num = 0
         start = time.time()
+
+        # Wait a bit for the handover to start (callback fires BEFORE disconnect)
+        time.sleep(0.5)
+
         while (time.time() - start) < timeout:
             if not self._running:
                 break
 
             now = time.time()
             elapsed = now - start
+            poll_num += 1
 
-            # --- Ping ---
+            # --- Ping (non-blocking: short timeout) ---
             if target_ip:
                 pings_sent += 1
-                result = gs_host.cmd(f'ping -c 1 -W 1 {target_ip}')
+                result = gs_host.cmd(f'ping -c 1 -W 0.3 {target_ip}')
                 if ' 0% packet loss' in result or '1 received' in result:
                     pings_received += 1
-                    if first_ping_ok_after is None and elapsed > 1.0:
-                        # Only count as "after" if we're past the initial disconnect
+                    if first_ping_ok_after is None and saw_adjacency_down:
                         first_ping_ok_after = now
                     last_ping_ok_time = now
                 else:
-                    # Reset first_ping_ok_after if we see loss after it
-                    if first_ping_ok_after and (now - first_ping_ok_after) < 0.5:
-                        first_ping_ok_after = None
+                    # If we haven't seen adjacency down yet, the handover is happening
+                    if not saw_adjacency_down:
+                        saw_adjacency_down = True
 
-            # --- Adjacency & route poll ---
-            if (now - last_adj_poll) >= adj_poll_interval:
-                last_adj_poll = now
+            # --- Adjacency poll ---
+            if adjacency_up_time is None:
+                # Check GS side
+                gs_adj_up = self._check_adjacency_up(gs_host, gs_id, debug_polls, poll_num)
 
-                if adjacency_up_time is None:
-                    try:
-                        adj_output = vtysh_cmd(gs_host, "show isis neighbor")
-                        if 'Up' in adj_output:
-                            adjacency_up_time = elapsed
-                    except Exception as e:
-                        print(f"*** [METRICS] adj poll error on {gs_id}: {e}", flush=True)
+                if not gs_adj_up:
+                    saw_adjacency_down = True
+                elif saw_adjacency_down:
+                    # Adjacency went down then came back up — convergence!
+                    adjacency_up_time = elapsed
+                    print(f"*** [METRICS] {gs_id} adjacency UP at {elapsed:.3f}s (GS side)", flush=True)
 
-                if route_present_time is None:
-                    try:
-                        route_output = vtysh_cmd(gs_host, "show ip route isis")
-                        # Check if there's at least one ISIS route
-                        if re.search(r'I\s+\d+\.\d+\.\d+\.\d+', route_output):
-                            route_present_time = elapsed
-                    except Exception as e:
-                        print(f"*** [METRICS] route poll error on {gs_id}: {e}", flush=True)
+                # If GS vtysh is failing, also check the satellite side
+                if adjacency_up_time is None and to_sat_host and saw_adjacency_down:
+                    sat_adj_up = self._check_adjacency_up(to_sat_host, f"sat{to_sat}", debug_polls, poll_num)
+                    if sat_adj_up:
+                        # Verify the neighbor is actually the GS
+                        try:
+                            adj_out = vtysh_cmd(to_sat_host, "show isis neighbor")
+                            if gs_id in adj_out.lower() or 'Up' in adj_out:
+                                adjacency_up_time = elapsed
+                                print(f"*** [METRICS] {gs_id} adjacency UP at {elapsed:.3f}s (sat side)", flush=True)
+                        except Exception:
+                            pass
 
-            # If both adjacency and route are up, convergence is done
+            # --- Route poll (try GS, then satellite side with subnet filter) ---
+            if route_present_time is None and adjacency_up_time is not None:
+                gs_routes = self._check_isis_routes(gs_host, gs_id, debug_polls, poll_num)
+                if gs_routes:
+                    route_present_time = elapsed
+                    print(f"*** [METRICS] {gs_id} ISIS routes present at {elapsed:.3f}s (GS side)", flush=True)
+                elif to_sat_host:
+                    gs_subnet = None
+                    if gs_id in self.gs_manager.active_links:
+                        gs_ip = self.gs_manager.active_links[gs_id].get('ip_gs', '')
+                        parts = gs_ip.split('.')
+                        if len(parts) >= 3:
+                            gs_subnet = f"{parts[0]}.{parts[1]}.{parts[2]}"
+                    sat_routes = self._check_isis_routes(
+                        to_sat_host, f"sat{to_sat}", debug_polls, poll_num,
+                        expected_subnet=gs_subnet,
+                        check_connected=True
+                    )
+                    if sat_routes:
+                        route_present_time = elapsed
+                        print(f"*** [METRICS] {gs_id} ISIS routes present at {elapsed:.3f}s (sat side, subnet={gs_subnet})", flush=True)
+
+            # Both up = convergence done
             if adjacency_up_time is not None and route_present_time is not None:
                 if first_ping_ok_after is not None:
                     break
-                # Keep pinging a bit more to confirm connectivity
                 if elapsed > (route_present_time + 2.0):
                     break
 
-            time.sleep(ping_interval)
+            time.sleep(adj_poll_interval)
 
         # --- Record results ---
-        convergence = max(
+        convergence = compute_convergence_time(
             adjacency_up_time or timeout,
             route_present_time or timeout,
         )
@@ -824,8 +1235,7 @@ class ISISMetricsCollector:
             route_present_time_s=round(route_present_time or timeout, 3),
         )
 
-        packets_lost = pings_sent - pings_received
-        loss_pct = (packets_lost / pings_sent * 100) if pings_sent > 0 else 0
+        packets_lost, loss_pct = compute_packet_loss(pings_sent, pings_received)
 
         loss_event = PacketLossEvent(
             timestamp=sim_time,
@@ -862,7 +1272,9 @@ class ISISMetricsCollector:
         print(
             f"*** [METRICS] Handover {gs_id}: sat{from_sat}->sat{to_sat} "
             f"convergence={convergence:.3f}s loss={loss_pct:.1f}% "
-            f"interruption={interruption_duration:.3f}s",
+            f"interruption={interruption_duration:.3f}s "
+            f"(adj={adjacency_up_time or timeout:.3f}s route={route_present_time or timeout:.3f}s "
+            f"polls={poll_num})",
             flush=True,
         )
 
@@ -870,13 +1282,17 @@ class ISISMetricsCollector:
         """
         Measure ISIS convergence after a new GS-satellite link is created.
         Polls adjacency and route tables until ISIS converges.
+        Also checks the satellite side as fallback if GS vtysh fails.
         """
         gs_host = self.gs_hosts.get(gs_id)
         if not gs_host:
             return
 
+        sat_host = self.sat_hosts.get(sat_id)
+
         timeout = 30.0
         poll_interval = 0.5
+        debug_polls = 10  # Log first N polls for debugging
         adjacency_up_time = None
         route_present_time = None
 
@@ -886,29 +1302,53 @@ class ISISMetricsCollector:
         # Wait for isisd to start and VTY socket to be ready
         # (setup_isis_gs takes ~1s: zebra 0.5s + isisd 0.3s + margin)
         time.sleep(1.5)
+
+        poll_num = 0
         while (time.time() - start) < timeout:
             if not self._running:
                 break
 
             elapsed = time.time() - start
+            poll_num += 1
 
-            # Check ISIS adjacency
+            # Check ISIS adjacency — try GS first, fallback to satellite side
             if adjacency_up_time is None:
-                try:
-                    adj_output = vtysh_cmd(gs_host, "show isis neighbor")
-                    if 'Up' in adj_output:
+                gs_adj_up = self._check_adjacency_up(gs_host, gs_id, debug_polls, poll_num)
+                if gs_adj_up:
+                    adjacency_up_time = elapsed
+                    print(f"*** [METRICS] {gs_id} adjacency UP at {elapsed:.3f}s (GS side)", flush=True)
+                elif sat_host:
+                    sat_adj_up = self._check_adjacency_up(sat_host, f"sat{sat_id}", debug_polls, poll_num)
+                    if sat_adj_up:
                         adjacency_up_time = elapsed
-                except Exception:
-                    pass
+                        print(f"*** [METRICS] {gs_id} adjacency UP at {elapsed:.3f}s (sat side)", flush=True)
 
-            # Check ISIS routes
+            # Check ISIS routes — try GS first, then satellite side
+            # GS side: any ISIS route = good (GS had none before)
+            # Sat side: must filter for the GS subnet (sat already has other ISIS routes)
+            #           use check_connected=True because GS subnet is a connected route on the sat
             if route_present_time is None:
-                try:
-                    route_output = vtysh_cmd(gs_host, "show ip route isis")
-                    if re.search(r'I\s+\d+\.\d+\.\d+\.\d+', route_output):
+                gs_routes = self._check_isis_routes(gs_host, gs_id, debug_polls, poll_num)
+                if gs_routes:
+                    route_present_time = elapsed
+                    print(f"*** [METRICS] {gs_id} ISIS routes present at {elapsed:.3f}s (GS side)", flush=True)
+                elif sat_host:
+                    # Find GS subnet to filter satellite's pre-existing routes
+                    gs_subnet = None
+                    if gs_id in self.gs_manager.active_links:
+                        gs_ip = self.gs_manager.active_links[gs_id].get('ip_gs', '')
+                        # Extract e.g. "192.168" from "192.168.50001.1/30"
+                        parts = gs_ip.split('.')
+                        if len(parts) >= 3:
+                            gs_subnet = f"{parts[0]}.{parts[1]}.{parts[2]}"
+                    sat_routes = self._check_isis_routes(
+                        sat_host, f"sat{sat_id}", debug_polls, poll_num,
+                        expected_subnet=gs_subnet,
+                        check_connected=True
+                    )
+                    if sat_routes:
                         route_present_time = elapsed
-                except Exception:
-                    pass
+                        print(f"*** [METRICS] {gs_id} ISIS routes present at {elapsed:.3f}s (sat side, subnet={gs_subnet})", flush=True)
 
             # Both up = converged
             if adjacency_up_time is not None and route_present_time is not None:
@@ -916,7 +1356,7 @@ class ISISMetricsCollector:
 
             time.sleep(poll_interval)
 
-        convergence = max(
+        convergence = compute_convergence_time(
             adjacency_up_time or timeout,
             route_present_time or timeout,
         )
@@ -939,7 +1379,7 @@ class ISISMetricsCollector:
             f"*** [METRICS] Connect {gs_id}->sat{sat_id} "
             f"adj={adjacency_up_time or timeout:.3f}s "
             f"route={route_present_time or timeout:.3f}s "
-            f"convergence={convergence:.3f}s",
+            f"convergence={convergence:.3f}s (polls={poll_num})",
             flush=True,
         )
 
@@ -947,14 +1387,14 @@ class ISISMetricsCollector:
         """Find an IP to ping from a GS (another connected GS or a satellite)."""
         # Try another connected GS
         active = self.gs_manager.get_active_connections()
-        for gs_id, sat_id in active.items():
+        for gs_id, _ in active.items():
             if gs_id != exclude_gs_id and gs_id in self.gs_manager.active_links:
                 link_info = self.gs_manager.active_links[gs_id]
                 # Return the GS IP (without /30 mask)
                 return link_info['ip_gs'].split('/')[0]
 
         # Fallback: ping a satellite
-        for sat_id, host in self.sat_hosts.items():
+        for _, host in self.sat_hosts.items():
             ip = host.IP()
             if ip and ip != '127.0.0.1':
                 return ip
@@ -1006,5 +1446,23 @@ class ISISMetricsCollector:
                     avg_props.append(sum(valid) / len(valid))
             if avg_props:
                 s.avg_lsp_propagation_s = round(sum(avg_props) / len(avg_props), 3)
+
+        # Link utilization
+        if self.link_utilization_snapshots:
+            all_pcts = [snap.utilization_pct for snap in self.link_utilization_snapshots]
+            s.avg_utilization_pct = round(sum(all_pcts) / len(all_pcts), 2)
+            s.max_utilization_pct = round(max(all_pcts), 2)
+
+            # Top 5 most loaded links (by average utilization)
+            from collections import defaultdict
+            per_link = defaultdict(list)
+            for snap in self.link_utilization_snapshots:
+                per_link[snap.link_id].append(snap.utilization_pct)
+            link_avgs = [
+                {'link_id': lid, 'avg_pct': round(sum(pcts) / len(pcts), 2)}
+                for lid, pcts in per_link.items()
+            ]
+            link_avgs.sort(key=lambda x: x['avg_pct'], reverse=True)
+            s.most_loaded_links = link_avgs[:5]
 
         return s

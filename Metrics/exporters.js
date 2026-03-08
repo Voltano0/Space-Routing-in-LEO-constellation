@@ -49,8 +49,6 @@ function exportContactsCSV(contactMetrics, orbitalPeriod) {
 // Exporter toutes les données au format CSV
 export function exportAllToCSV(contactMetrics, orbitalPeriod) {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-
-    // Exporter contacts ISL
     const contactsCSV = exportContactsCSV(contactMetrics, orbitalPeriod);
     downloadFile(contactsCSV, `contacts_${timestamp}.csv`, 'text/csv');
 }
@@ -67,7 +65,6 @@ export function exportSummary(contactMetrics) {
     const contactStats = contactMetrics.getStats();
 
     let summary = '=== RÉSUMÉ DES MÉTRIQUES ===\n\n';
-
     summary += '--- Contacts Inter-Satellites ---\n';
     summary += `Contacts totaux: ${contactStats.totalContacts}\n`;
     summary += `Contacts terminés: ${contactStats.completedContacts}\n`;
@@ -104,7 +101,7 @@ export function exportForMininet(contactMetrics, constellation, orbitalPeriod) {
             },
             simulation: {
                 orbitalPeriod_min: orbitalPeriod,
-                samplingInterval_s: 20,  // From constants.js
+                samplingInterval_s: 20,
                 duration_s: contacts.length > 0 ? contacts[contacts.length - 1].endTime : 0,
                 numPeriods: 5
             }
@@ -125,7 +122,7 @@ export function exportForMininet(contactMetrics, constellation, orbitalPeriod) {
             duration: c.duration,
             avgDistance_km: c.avgDistance,
             avgLatency_ms: c.avgLatency,
-            bandwidth_mbps: 1000,  // Default ISL bandwidth
+            bandwidth_mbps: 1000,
             type: 'ISL'
         })),
         statistics: contactMetrics.getStats()

@@ -277,7 +277,7 @@ export function updateGroundSatelliteLinks(scene, satellites, currentTime = 0) {
     // Supprimer les anciens liens
     clearSceneObjects(scene, groundSatelliteLinks);
 
-    const MIN_ELEVATION = 25; // Élévation minimale en degrés
+    const MIN_ELEVATION = 10; // Élévation minimale en degrés
     const HANDOVER_HYSTERESIS = 15; // Différence d'élévation pour forcer un handover
     const MIN_HANDOVER_INTERVAL = 10; // Délai minimum entre handovers (secondes)
 
@@ -459,7 +459,3 @@ export function getStationTrackingState() {
     return stationTrackingState;
 }
 
-// Réinitialiser l'état de tracking (utilisé lors du démarrage de la collecte)
-export function resetTrackingState() {
-    stationTrackingState = {};
-}
